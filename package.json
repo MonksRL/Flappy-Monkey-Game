@@ -1,0 +1,38 @@
+{
+  "name": "flappy-monkey",
+  "version": "1.0.0",
+  "description": "Flappy Monkey",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "dist": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.monksrl.flappymonkey",
+    "productName": "Flappy Monkey",
+    "directories": {
+      "buildResources": "."
+    },
+    "files": [
+      "**/*",
+      "!node_modules"
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "favicon.ico"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ItzMonksRL",
+        "repo": "flappy-monkey"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-updater": "^6.3.9"
+  }
+}

@@ -1,0 +1,8 @@
+﻿node_modules/
+dist/
+*.exe
+*.blockmap
+*.yml
+*.asar
+.DS_Store
+Thumbs.db
