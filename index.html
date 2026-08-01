@@ -1683,6 +1683,28 @@ button:hover {
         <button id="muteBtn">🔊 Music On</button>
         <button id="musicOptionsBtn" style="font-size:12px; padding:6px 14px; background:#333; border:2px solid #555;">🎵</button>
         <button id="resetBtn">🔃 Reset Everything</button>
+        <button id="mobileMoreBtn" type="button" aria-haspopup="dialog" aria-controls="mobileMoreSheet">☰ More</button>
+    </div>
+
+    <div id="mobileMoreSheet" aria-hidden="true">
+        <button class="mobile-more-scrim" type="button" aria-label="Close more menu"></button>
+        <section class="mobile-more-panel" role="dialog" aria-modal="true" aria-labelledby="mobileMoreTitle">
+            <div class="mobile-more-handle" aria-hidden="true"></div>
+            <div class="mobile-more-heading">
+                <div><strong id="mobileMoreTitle">More</strong><span>Game menus and settings</span></div>
+                <button id="mobileMoreClose" type="button" aria-label="Close more menu">✕</button>
+            </div>
+            <div class="mobile-more-grid">
+                <button type="button" data-mobile-proxy="titlesBtn">🎟️ <span>Titles</span></button>
+                <button type="button" data-mobile-proxy="bananaPassBtn">🏆 <span>Banana Pass</span></button>
+                <button type="button" data-mobile-proxy="inventoryBtn">🎒 <span>Inventory</span></button>
+                <button type="button" data-mobile-proxy="settingsBtn">⚙️ <span>Settings</span></button>
+                <button type="button" data-mobile-proxy="collectionIndexBtn">📖 <span>Collection Index</span></button>
+                <button type="button" data-mobile-proxy="dailyQuestBtn">📅 <span>Daily Quests</span></button>
+                <button type="button" data-mobile-proxy="profileBtn">👤 <span>Profile</span></button>
+                <button type="button" data-mobile-proxy="installAppBtn" data-mobile-install>📲 <span>Install App</span></button>
+            </div>
+        </section>
     </div>
 
 <!-- Skin Menu -->
@@ -1690,7 +1712,7 @@ button:hover {
     <h2 style="font-size:36px; margin:15px 0 25px 0; text-shadow:0 4px 12px #000;">Choose Your Monkey</h2>
     
     <!-- NEW: Search + Filter Controls (keeps original style) -->
-    <div style="display:flex; gap:12px; margin-bottom:25px; flex-wrap:wrap; justify-content:center; max-width:100%;">
+    <div class="skin-menu-toolbar" style="display:flex; gap:12px; margin-bottom:25px; flex-wrap:wrap; justify-content:center; max-width:100%;">
         <input type="text" id="skinSearchInput" 
                placeholder="🔎 Search monkey skins..." 
                style="padding:12px 18px; font-size:17px; width:280px; max-width:90vw; background:#333; color:white; border:3px solid #ffcc00; border-radius:12px; outline:none;">
@@ -3242,8 +3264,7 @@ if (customUsername && customUsername.trim() && profilePic && !localStorage.getIt
         unlocked: false, 
         unlockType: 'shop',
         cost: 25,
-        modeRestricted: 'chunky',
-        linkedTitle: 'Bruh_Monkey.jpg'
+        modeRestricted: 'chunky'
     },
     {
         name: 'Pinky', 
@@ -4207,7 +4228,7 @@ titles.forEach(title => {
         'Torn Monkey': 'Worn, torn, and tougher than ever.',
         'Tree Bark Monkey': 'Stitched from bark and forest scraps.',
         'Flower Bloom Monkey': 'Petals tucked into every stitch.',
-        'Bruh Monkey French Fries With Waves': 'Bruh_Monkey French Fries With Waves.jpg',
+        'Bruh Monkey French Fries With Waves': 'A crispy wave-riding Bruh Monkey with fries to spare.',
         'Low Taper Fade Monkey': 'And you know what else is massive!?',
         'Toxic Monkey': 'One stitch away from meltdown.',
         'Clown Monkey': 'Every stitch hides a trick.',
@@ -4312,6 +4333,19 @@ function getHighScoreKey(modeId) {
         }
         document.addEventListener('pointerdown', unlockBackgroundMusic, { once: true, capture: true });
         document.addEventListener('keydown', unlockBackgroundMusic, { once: true, capture: true });
+        let resumeMusicAfterLifecycle = false;
+        window.addEventListener('flappy:lifecycle', (event) => {
+            if (event.detail?.suspended) {
+                resumeMusicAfterLifecycle = Boolean(musicEnabled && currentTrack && !currentTrack.paused);
+                Object.values(musicTracks).forEach((track) => track?.pause());
+                customAudio?.pause();
+                return;
+            }
+            if (resumeMusicAfterLifecycle && musicEnabled && musicGestureUnlocked) {
+                resumeMusicAfterLifecycle = false;
+                playCurrentMusic();
+            }
+        });
 
         const unlockPopup = document.getElementById('unlockPopup');
         const unlockKicker = document.getElementById('unlockKicker');
@@ -6734,22 +6768,48 @@ if (selectedTitle && selectedTitle !== 'None') {
         // but gravity, jumps, pipes, collisions, and frame-based effects still
         // advance at the original 60 updates per second.
         const GAME_UPDATE_MS = 1000 / 60;
-        const MAX_GAME_UPDATES_PER_FRAME = 8;
+        // 250 ms is the largest elapsed slice accepted below, so 15 substeps
+        // can fully preserve one real quarter-second even on a very slow frame.
+        // A smaller cap discards gravity/pipe time and visibly creates slow-mo.
+        const MAX_GAME_UPDATES_PER_FRAME = 15;
+        const MOBILE_REAL_TIME_GAMEPLAY = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent)
+            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
         let previousGameLoopTime = 0;
         let gameUpdateAccumulator = 0;
+        let lastIdleGameDraw = 0;
         function gameLoop(timestamp) {
+            if (document.hidden || window.flappyAppSuspended) {
+                previousGameLoopTime = timestamp;
+                gameUpdateAccumulator = 0;
+                requestAnimationFrame(gameLoop);
+                return;
+            }
             if (!previousGameLoopTime) previousGameLoopTime = timestamp;
             const elapsed = Math.min(250, Math.max(0, timestamp - previousGameLoopTime));
             previousGameLoopTime = timestamp;
-            gameUpdateAccumulator += elapsed;
-            let updateCount = 0;
-            while (gameUpdateAccumulator >= GAME_UPDATE_MS && updateCount < MAX_GAME_UPDATES_PER_FRAME) {
+            if (!MOBILE_REAL_TIME_GAMEPLAY) {
+                // Preserve the established PC feel exactly: the desktop build
+                // has always advanced once per display frame.
                 update();
-                gameUpdateAccumulator -= GAME_UPDATE_MS;
-                updateCount++;
+                gameUpdateAccumulator = 0;
+            } else {
+                // Phones use real elapsed time so 30 Hz rendering or a missed
+                // frame cannot turn gravity and pipes into slow motion.
+                gameUpdateAccumulator += elapsed;
+                let updateCount = 0;
+                while (gameUpdateAccumulator >= GAME_UPDATE_MS && updateCount < MAX_GAME_UPDATES_PER_FRAME) {
+                    update();
+                    gameUpdateAccumulator -= GAME_UPDATE_MS;
+                    updateCount++;
+                }
+                if (updateCount === MAX_GAME_UPDATES_PER_FRAME) gameUpdateAccumulator %= GAME_UPDATE_MS;
             }
-            if (updateCount === MAX_GAME_UPDATES_PER_FRAME) gameUpdateAccumulator = 0;
-            draw();
+            // A static lobby does not need a full canvas repaint at 60/120 Hz.
+            // Throttling it frees the GPU for whichever full-screen mode is open.
+            if (started || timestamp - lastIdleGameDraw >= 100) {
+                draw();
+                lastIdleGameDraw = timestamp;
+            }
             requestAnimationFrame(gameLoop);
         }
 // ====================== CHUNKY MODE SKIN RESTRICTION ======================
@@ -6872,15 +6932,39 @@ function defenseRewardSkinProgressMarkup(skin, heading, modeNote) {
         <div class="title-unlock-extra" style="color:#ff8e91;">${modeNote}</div>`;
 }
 
-function refreshSkinMenu() {
+let skinMenuPage = 1;
+const MOBILE_SKINS_PER_PAGE = 24;
+
+function refreshSkinMenu(options = {}) {
     const grid = document.getElementById('skinGrid');
+    const menu = document.getElementById('skinMenu');
+    if (!grid || !menu) return;
+    // Progress updates happen often during play. Do not build hundreds of
+    // hidden cards or decode their artwork until this menu is actually open.
+    if (menu.style.display !== 'flex' && !options.force) {
+        grid.replaceChildren();
+        return;
+    }
     grid.innerHTML = '';
 
     const sortedSkins = [...monkeySkins].sort((a, b) => 
         rarityOrder.indexOf(a.rarity) - rarityOrder.indexOf(b.rarity)
     );
+    const searchTerm = String(document.getElementById('skinSearchInput')?.value || '').toLowerCase().trim();
+    const rarityFilter = String(document.getElementById('rarityFilter')?.value || 'all').toLowerCase();
+    const filteredSkins = sortedSkins.filter(skin => {
+        const matchesSearch = !searchTerm || String(skin.name || '').toLowerCase().includes(searchTerm);
+        const matchesRarity = rarityFilter === 'all' || String(skin.rarity || 'common').toLowerCase() === rarityFilter;
+        return matchesSearch && matchesRarity;
+    });
+    const mobileMenu = matchMedia('(max-width: 760px), (max-height: 520px) and (orientation: landscape)').matches;
+    const pageSize = mobileMenu ? MOBILE_SKINS_PER_PAGE : Math.max(1, filteredSkins.length);
+    const pageCount = Math.max(1, Math.ceil(filteredSkins.length / pageSize));
+    skinMenuPage = Math.max(1, Math.min(pageCount, Number(skinMenuPage) || 1));
+    const pageStart = (skinMenuPage - 1) * pageSize;
+    const visibleSkins = filteredSkins.slice(pageStart, pageStart + pageSize);
 
-    sortedSkins.forEach(skin => {
+    visibleSkins.forEach(skin => {
         const rarity = RARITIES[skin.rarity] || RARITIES.common;
 
         const div = document.createElement('div');
@@ -6901,20 +6985,19 @@ function refreshSkinMenu() {
             div.style.filter = 'grayscale(75%)';
         }
 
-        let bgStyle = 'background: rgba(255,255,255,0.08);';
-        if (skin.menuBg) {
-            bgStyle = `background-image: url('${skin.menuBg}'); background-size: cover; background-position: center; background-repeat: no-repeat;`;
-        }
+        const previewStyle = !mobileMenu && skin.menuBg
+            ? `background-image: url('${skin.menuBg}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
+            : 'background: radial-gradient(circle at 50% 40%, rgba(255,239,137,.2), rgba(13,53,37,.88) 72%);';
 
         div.innerHTML = `
             <div style="position:relative; width:100%; height:165px; border-radius:18px; overflow:hidden; 
-                        ${skin.menuBg ? `background-image: url('${skin.menuBg}'); background-size: cover; background-position: center; background-repeat: no-repeat;` : 'background: rgba(255,255,255,0.08);'}">
+                        ${previewStyle}">
                 
                 ${skin.animated ? 
-                    `<img src="${skin.file}" alt="${skin.name}" 
+                    `<img data-menu-src="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async"
                           style="position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); width:130px; height:130px; image-rendering:pixelated; z-index:2;">` 
                     : 
-                    `<img src="${skin.file}" alt="${skin.name}" 
+                    `<img data-menu-src="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async"
                           style="position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); width:120px; height:120px; image-rendering:pixelated; z-index:2;">`
                 }
                 ${skin.mobileOnly ? '<span style="position:absolute;left:9px;top:9px;z-index:4;padding:5px 9px;border:2px solid #87fff2;border-radius:999px;background:rgba(4,35,46,.94);color:#b6fff8;font-size:10px;font-weight:1000;letter-spacing:.08em;box-shadow:0 4px 12px rgba(0,0,0,.45);">MOBILE ONLY</span>' : ''}
@@ -7372,13 +7455,25 @@ else {
         grid.appendChild(div);
     });
 
-    // Keep a filtered menu stable. Waiting here used to expose the complete
-    // hundreds-card grid for a frame, changing the overlay height and making
-    // the screen visibly jump after a searched skin was selected.
-    if (typeof applySkinFilter === 'function') applySkinFilter();
-    else setTimeout(() => {
-        if (typeof applySkinFilter === 'function') applySkinFilter();
-    }, 0);
+    if (!filteredSkins.length) {
+        const noResult = document.createElement('div');
+        noResult.className = 'no-results';
+        noResult.textContent = searchTerm ? `No skins found matching “${searchTerm}”` : `No ${rarityFilter} skins found`;
+        grid.appendChild(noResult);
+    } else if (mobileMenu && pageCount > 1) {
+        const pager = document.createElement('div');
+        pager.className = 'skin-menu-pager';
+        pager.innerHTML = `<button type="button" data-skin-page="previous" ${skinMenuPage === 1 ? 'disabled' : ''}>← Previous</button><span>Page ${skinMenuPage} of ${pageCount}<br>${filteredSkins.length} matches</span><button type="button" data-skin-page="next" ${skinMenuPage === pageCount ? 'disabled' : ''}>Next →</button>`;
+        pager.addEventListener('click', event => {
+            const button = event.target.closest('[data-skin-page]');
+            if (!button || button.disabled) return;
+            skinMenuPage += button.dataset.skinPage === 'next' ? 1 : -1;
+            refreshSkinMenu({ force:true });
+            menu.scrollTo({ top:0, behavior:'smooth' });
+        });
+        grid.appendChild(pager);
+    }
+    window.hydrateFlappyMenuImages?.(grid, menu);
 }
 
         function legacyRefreshTitlesMenu() {
@@ -7543,19 +7638,27 @@ function getTitleCardDetails(title) {
     return { linkedSkin, rarityKey, rarity, unlockSource, includedWith };
 }
 
-function refreshTitlesMenu() {
+let titlesMenuPage = 1;
+const MOBILE_TITLES_PER_PAGE = 30;
+
+function refreshTitlesMenu(options = {}) {
     syncTitleUnlocks();
     const grid = document.getElementById('titlesGrid');
+    const menu = document.getElementById('titlesMenu');
     const input = document.getElementById('titleSearchInput');
     const clear = document.getElementById('titleSearchClear');
     const rarityFilter = document.getElementById('titleRarityFilter');
     const summary = document.getElementById('titlesSearchSummary');
     const empty = document.getElementById('titlesEmptyState');
-    if (!grid) return;
+    if (!grid || !menu) return;
+    if (menu.style.display !== 'flex' && !options.force) {
+        grid.replaceChildren();
+        return;
+    }
 
     const query = String(input?.value || '').trim().toLowerCase();
     const selectedRarity = String(rarityFilter?.value || 'all');
-    const visibleTitles = titles.map(title => ({ title, details:getTitleCardDetails(title) })).filter(({ title, details }) => {
+    const matchingTitles = titles.map(title => ({ title, details:getTitleCardDetails(title) })).filter(({ title, details }) => {
         if (selectedRarity !== 'all' && details.rarityKey !== selectedRarity) return false;
         if (!query) return true;
         return [
@@ -7566,6 +7669,11 @@ function refreshTitlesMenu() {
             details.includedWith
         ].some(value => String(value || '').toLowerCase().includes(query));
     });
+    const mobileMenu = matchMedia('(max-width: 760px), (max-height: 520px) and (orientation: landscape)').matches;
+    const pageSize = mobileMenu ? MOBILE_TITLES_PER_PAGE : Math.max(1, matchingTitles.length);
+    const pageCount = Math.max(1, Math.ceil(matchingTitles.length / pageSize));
+    titlesMenuPage = Math.max(1, Math.min(pageCount, Number(titlesMenuPage) || 1));
+    const visibleTitles = matchingTitles.slice((titlesMenuPage - 1) * pageSize, titlesMenuPage * pageSize);
 
     grid.innerHTML = '';
     for (const { title, details } of visibleTitles) {
@@ -7582,7 +7690,7 @@ function refreshTitlesMenu() {
                 <span class="title-card-state ${stateClass}">${stateLabel}</span>
             </div>
             <div class="title-card-art">${details.linkedSkin
-                ? `<img src="${escapeTitleMenuHtml(details.linkedSkin.file)}" alt="" loading="lazy" decoding="async">`
+                ? `<img data-menu-src="${escapeTitleMenuHtml(details.linkedSkin.file)}" alt="" loading="lazy" decoding="async">`
                 : '<span aria-hidden="true">Aa</span>'}</div>
             <div class="title-main">${escapeTitleMenuHtml(title.name)}</div>
             <div class="title-card-included">${escapeTitleMenuHtml(details.includedWith)}</div>
@@ -7610,13 +7718,28 @@ function refreshTitlesMenu() {
         grid.appendChild(div);
     }
 
+    if (mobileMenu && pageCount > 1) {
+        const pager = document.createElement('div');
+        pager.className = 'skin-menu-pager titles-menu-pager';
+        pager.innerHTML = `<button type="button" data-title-page="previous" ${titlesMenuPage === 1 ? 'disabled' : ''}>← Previous</button><span>Page ${titlesMenuPage} of ${pageCount}<br>${matchingTitles.length} matches</span><button type="button" data-title-page="next" ${titlesMenuPage === pageCount ? 'disabled' : ''}>Next →</button>`;
+        pager.addEventListener('click', event => {
+            const button = event.target.closest('[data-title-page]');
+            if (!button || button.disabled) return;
+            titlesMenuPage += button.dataset.titlePage === 'next' ? 1 : -1;
+            refreshTitlesMenu({ force:true });
+            menu.scrollTo({ top:0, behavior:'smooth' });
+        });
+        grid.appendChild(pager);
+    }
+    window.hydrateFlappyMenuImages?.(grid, menu);
+
     if (clear) clear.disabled = !query;
     if (summary) summary.textContent = query
-        ? `${visibleTitles.length} of ${titles.length} titles match`
+        ? `${matchingTitles.length} of ${titles.length} titles match`
         : selectedRarity !== 'all'
-            ? `${visibleTitles.length} ${RARITIES[selectedRarity]?.name || selectedRarity} titles`
+            ? `${matchingTitles.length} ${RARITIES[selectedRarity]?.name || selectedRarity} titles`
         : `${titles.filter(title => title.unlocked || title.name === 'None').length} of ${titles.length} titles unlocked`;
-    if (empty) empty.hidden = visibleTitles.length > 0;
+    if (empty) empty.hidden = matchingTitles.length > 0;
 
     const info = getLevelAndProgress();
     const colorBtn = document.getElementById('customTitleColorBtn');
@@ -7779,7 +7902,14 @@ function cosmeticIconPath(category, id) {
     return prefix && normalizedId ? `assets/cosmetic-icons/${prefix}-${normalizedId}.png` : '';
 }
 
-              function refreshShopGrid() {
+              function refreshShopGrid(options = {}) {
+    const shopMenu = document.getElementById('shopMenu');
+    const marketGrids = [...document.querySelectorAll('.banana-market-grid')];
+    if (!shopMenu) return;
+    if (shopMenu.style.display !== 'flex' && !options.force) {
+        marketGrids.forEach(grid => grid.replaceChildren());
+        return;
+    }
     document.getElementById('shopCoins').textContent = monkeyCoins;
 
     // TRAILS
@@ -8134,6 +8264,16 @@ function cosmeticIconPath(category, id) {
     // ====================== CRATES TAB ======================
     // Crates tab
     refreshCratesGrid();
+    // The market contains many art-heavy categories. Keep every inactive tab
+    // network-quiet and hydrate only the category the player can currently see.
+    marketGrids.forEach(grid => grid.querySelectorAll('img[src]').forEach(image => {
+        image.dataset.menuSrc = image.getAttribute('src');
+        image.removeAttribute('src');
+        image.loading = 'lazy';
+        image.decoding = 'async';
+    }));
+    const activeGrid = marketGrids.find(grid => getComputedStyle(grid).display !== 'none');
+    window.hydrateFlappyMenuImages?.(activeGrid, shopMenu);
 }
         function initShopTabs() {
     const tabs = document.querySelectorAll('.shop-tab');
@@ -8157,22 +8297,41 @@ function cosmeticIconPath(category, id) {
             });
             if (grids[tab.dataset.tab]) {
                 grids[tab.dataset.tab].style.display = 'flex';
+                window.hydrateFlappyMenuImages?.(grids[tab.dataset.tab], document.getElementById('shopMenu'));
             }
         });
     });
 }
 
-        document.getElementById('skinBtn').addEventListener('click', () => { refreshSkinMenu(); document.getElementById('skinMenu').style.display = 'flex'; });
+        document.getElementById('skinBtn').addEventListener('click', () => {
+            document.getElementById('skinMenu').style.display = 'flex';
+            skinMenuPage = 1;
+            refreshSkinMenu({ force:true });
+        });
         document.getElementById('closeSkinMenu').addEventListener('click', () => document.getElementById('skinMenu').style.display = 'none');
-        document.getElementById('titlesBtn').addEventListener('click', () => { syncTitleUnlocks(); refreshTitlesMenu(); document.getElementById('titlesMenu').style.display = 'flex'; });
+        document.getElementById('titlesBtn').addEventListener('click', () => {
+            syncTitleUnlocks();
+            document.getElementById('titlesMenu').style.display = 'flex';
+            titlesMenuPage = 1;
+            refreshTitlesMenu({ force:true });
+        });
         document.getElementById('closeTitlesMenu').addEventListener('click', () => document.getElementById('titlesMenu').style.display = 'none');
-        document.getElementById('titleSearchInput').addEventListener('input', refreshTitlesMenu);
-        document.getElementById('titleRarityFilter').addEventListener('change', refreshTitlesMenu);
+        let titleSearchFrame = 0;
+        document.getElementById('titleSearchInput').addEventListener('input', () => {
+            titlesMenuPage = 1;
+            cancelAnimationFrame(titleSearchFrame);
+            titleSearchFrame = requestAnimationFrame(() => refreshTitlesMenu({ force:true }));
+        });
+        document.getElementById('titleRarityFilter').addEventListener('change', () => {
+            titlesMenuPage = 1;
+            refreshTitlesMenu({ force:true });
+        });
         document.getElementById('titleSearchClear').addEventListener('click', () => {
             const input = document.getElementById('titleSearchInput');
             input.value = '';
             input.focus();
-            refreshTitlesMenu();
+            titlesMenuPage = 1;
+            refreshTitlesMenu({ force:true });
         });
         const modeGrid = document.getElementById('modeGrid');
         modes.forEach(m => {
@@ -8220,8 +8379,8 @@ document.getElementById('shopBtn').addEventListener('click', () => {
     document.getElementById('cratesGrid').style.display = 'flex';
 
     document.getElementById('shopCoins').textContent = monkeyCoins;
-    refreshShopGrid();
     document.getElementById('shopMenu').style.display = 'flex';
+    refreshShopGrid({ force:true });
 });
 document.getElementById('closeShopMenu').addEventListener('click', () => document.getElementById('shopMenu').style.display = 'none');
         document.getElementById('musicOptionsBtn').addEventListener('click', () => {
@@ -10235,15 +10394,16 @@ function updateLobbyMonkeyPreview() {
 
     // Click to open skin menu
     container.onclick = () => {
-        refreshSkinMenu();
         document.getElementById('skinMenu').style.display = 'flex';
+        skinMenuPage = 1;
+        refreshSkinMenu({ force:true });
     };
 }
 
 // Hook into skin refresh
 const originalRefreshSkinMenu = refreshSkinMenu;
-refreshSkinMenu = function() {
-    if (typeof originalRefreshSkinMenu === 'function') originalRefreshSkinMenu();
+refreshSkinMenu = function(options) {
+    if (typeof originalRefreshSkinMenu === 'function') originalRefreshSkinMenu(options);
     updateLobbyMonkeyPreview();
 };
 
@@ -10254,40 +10414,8 @@ window.addEventListener('load', () => {
 // ====================== FIXED SKIN SEARCH + RARITY FILTER (v8 - Data Attributes) ======================
 
 function applySkinFilter() {
-    const grid = document.getElementById('skinGrid');
-    if (!grid) return;
-
-    const searchTerm = (document.getElementById('skinSearchInput')?.value || '').toLowerCase().trim();
-    const rarityFilter = document.getElementById('rarityFilter')?.value || 'all';
-
-    const cards = grid.querySelectorAll('.skin-option');
-    let hasVisible = false;
-
-    cards.forEach(card => {
-        const skinName = (card.dataset.name || '').toLowerCase();
-        const cardRarity = (card.dataset.rarity || 'common').toLowerCase();
-
-        const matchesSearch = !searchTerm || skinName.includes(searchTerm);
-        const matchesRarity = rarityFilter === 'all' || cardRarity === rarityFilter;
-
-        card.style.display = (matchesSearch && matchesRarity) ? '' : 'none';
-
-        if (matchesSearch && matchesRarity) hasVisible = true;
-    });
-
-    // Remove old "no results" message
-    const oldMsg = grid.querySelector('.no-results');
-    if (oldMsg) oldMsg.remove();
-
-    if (!hasVisible && (searchTerm || rarityFilter !== 'all')) {
-        const noResult = document.createElement('div');
-        noResult.className = 'no-results';
-        noResult.style.cssText = 'grid-column: 1 / -1; text-align:center; padding:90px 20px; color:#ff6666; font-size:21px;';
-        noResult.innerHTML = searchTerm 
-            ? `😕 No skins found matching "<strong>${searchTerm}</strong>"` 
-            : `😕 No ${rarityFilter} skins found`;
-        grid.appendChild(noResult);
-    }
+    skinMenuPage = 1;
+    refreshSkinMenu({ force:true });
 }
 
 // Setup event listeners
@@ -10295,21 +10423,14 @@ function setupSkinSearchAndFilter() {
     const searchInput = document.getElementById('skinSearchInput');
     const raritySelect = document.getElementById('rarityFilter');
 
-    if (searchInput) searchInput.addEventListener('input', applySkinFilter);
+    let refreshFrame = 0;
+    if (searchInput) searchInput.addEventListener('input', () => {
+        cancelAnimationFrame(refreshFrame);
+        refreshFrame = requestAnimationFrame(applySkinFilter);
+    });
     if (raritySelect) raritySelect.addEventListener('change', applySkinFilter);
 }
 
-// Open Skin Menu
-document.getElementById('skinBtn').addEventListener('click', () => {
-    const searchInput = document.getElementById('skinSearchInput');
-    if (searchInput) searchInput.value = '';
-
-    document.getElementById('skinMenu').style.display = 'flex';
-
-    setTimeout(() => {
-        applySkinFilter();
-    }, 400);
-});
 // Initialize skin filter when page loads
 window.addEventListener('load', () => {
     setupSkinSearchAndFilter();
@@ -10382,7 +10503,7 @@ window.addEventListener('load', () => {
                 </button>
             </div>
             
-            <button onclick="document.getElementById('dailyQuestPopup').style.display='none'" 
+            <button id="closeDailyQuestPopup" onclick="document.getElementById('dailyQuestPopup').style.display='none'"
                     style="margin-top:25px; width:100%; padding:12px; font-size:18px; background:#444; color:white; border:2px solid #666; border-radius:12px;">
                 Close
             </button>
@@ -10416,7 +10537,7 @@ window.addEventListener('load', () => {
         </button>
         
         <!-- FIXED: now calls the proper unblock function -->
-        <button onclick="hideSecretPopup()" 
+        <button id="closeSecretDecodePopup" onclick="hideSecretPopup()"
                 style="width:100% !important; max-width:380px !important; margin:0 auto !important; display:block !important; 
                        padding:13px !important; font-size:17px !important; background:#2a2a2a !important; color:#bbbbbb !important; 
                        border:2px solid #666666 !important; border-radius:10px !important; cursor:pointer !important;">
@@ -12712,18 +12833,32 @@ window.addEventListener('load', () => {
 
     const towerImages = Object.fromEntries(Object.entries(TOWERS).map(([id, tower]) => {
         const image = new Image();
-        image.src = tower.file;
         return [id, image];
     }));
     const pestImages = Object.fromEntries(PESTS.map((pest) => {
         const image = new Image();
-        image.src = pest.file;
         return [pest.id, image];
     }));
+    function ensureTowerImage(id) {
+        const image = towerImages[id];
+        const tower = TOWERS[id];
+        if (image && tower && !image.src) image.src = id === 'attackhelicopter' ? 'Attack-Helicopter Monkey.webp' : tower.file;
+        return image;
+    }
+    function warmDefenseGameplayImages() {
+        PESTS.forEach(pest => {
+            const image = pestImages[pest.id];
+            if (image && !image.src) image.src = pest.file;
+        });
+        ensureTowerImage('torn');
+        ensureTowerImage('soldier');
+        ensureTowerImage('attackhelicopter');
+        if (!attackHelicopterBodyImage.src) attackHelicopterBodyImage.src = 'attack-helicopter-defender.webp';
+    }
     const birthdayPresentImage = new Image();
     birthdayPresentImage.src = 'Birthday Bash Present.png';
     const attackHelicopterBodyImage = new Image();
-    attackHelicopterBodyImage.src = 'attack-helicopter-defender.png';
+    attackHelicopterBodyImage.decoding = 'async';
     const ATTACK_HELICOPTER_VISUAL_SCALE = .76;
     const ATTACK_HELICOPTER_MUZZLE_X = 108;
     const ATTACK_HELICOPTER_MUZZLE_Y = 43;
@@ -13352,7 +13487,9 @@ window.addEventListener('load', () => {
             button.type = 'button';
             button.title = tower.hint;
             const image = document.createElement('img');
-            image.src = tower.file;
+            image.dataset.menuSrc = id === 'attackhelicopter' ? 'Attack-Helicopter Monkey.webp' : tower.file;
+            image.loading = 'lazy';
+            image.decoding = 'async';
             image.alt = '';
             image.setAttribute('aria-hidden', 'true');
             const copy = document.createElement('span');
@@ -13482,6 +13619,9 @@ window.addEventListener('load', () => {
         started = false;
         td.active = true;
         screen.style.display = 'block';
+        warmDefenseGameplayImages();
+        const towerRow = document.getElementById('tdTowerRow');
+        window.hydrateFlappyMenuImages?.(towerRow, towerRow);
         setActiveMap(td.mapId);
         showMapSelection();
         applyTowerDefenseProfileTheme();
@@ -13825,6 +13965,7 @@ window.addEventListener('load', () => {
     }
 
     function chooseTower(type) {
+        ensureTowerImage(type);
         const mission = currentMission();
         if (td.runMode === 'campaign' && (!mission || !mission.allowed.includes(type))) {
             setStatus('That defender is locked for this campaign mission.', true);
@@ -15896,10 +16037,26 @@ window.addEventListener('load', () => {
     }
 
     function drawAttackHelicopter(tower, stats, selected) {
+        if (!attackHelicopterBodyImage.src) attackHelicopterBodyImage.src = 'attack-helicopter-defender.webp';
         if (attackHelicopterBodyImage.complete && attackHelicopterBodyImage.naturalWidth) {
             drawAttackHelicopterSprite(tower,stats,selected);
             return;
         }
+        // Never flash the retired code-drawn helicopter while the real custom
+        // defender art is decoding. A small loading beacon is preferable to a
+        // visibly different aircraft suddenly swapping in mid-wave.
+        tdCtx.save();
+        tdCtx.translate(tower.x, tower.y);
+        tdCtx.fillStyle = 'rgba(6,25,17,.72)';
+        tdCtx.strokeStyle = '#c8f39f';
+        tdCtx.lineWidth = 3;
+        tdCtx.beginPath(); tdCtx.arc(0,0,25,0,Math.PI*2); tdCtx.fill(); tdCtx.stroke();
+        tdCtx.fillStyle = '#fff1a1';
+        tdCtx.font = '900 10px Arial';
+        tdCtx.textAlign = 'center';
+        tdCtx.fillText('AIR SUPPORT',0,4);
+        tdCtx.restore();
+        return;
         const now = Date.now() / 1000;
         const gunship = tower.gunshipTicks > 0;
         const level = Math.max(1, Number(tower.level || 1));
@@ -16151,12 +16308,17 @@ window.addEventListener('load', () => {
         if (image && image.complete && image.naturalWidth) {
             tdCtx.drawImage(image, -29, -29, 58, 58);
         } else {
-            tdCtx.fillStyle = config.color;
-            tdCtx.beginPath(); tdCtx.arc(0, 0, 16, 0, Math.PI * 2); tdCtx.fill();
-            tdCtx.fillStyle = '#172310';
-            tdCtx.font = 'bold 14px Arial';
-            tdCtx.textAlign = 'center';
-            tdCtx.fillText(config.shortName[0], 0, 5);
+            // Do not substitute fake defender art while the real skin decodes.
+            // A small neutral spinner keeps placement feedback without a
+            // mismatched circle/initial flashing on slower phones.
+            const phase = Date.now() / 280;
+            tdCtx.strokeStyle = 'rgba(234,255,207,.35)';
+            tdCtx.lineWidth = 3;
+            tdCtx.beginPath(); tdCtx.arc(0, 0, 15, 0, Math.PI * 2); tdCtx.stroke();
+            tdCtx.strokeStyle = '#fff0a3';
+            tdCtx.lineCap = 'round';
+            tdCtx.beginPath(); tdCtx.arc(0, 0, 15, phase, phase + Math.PI * .78); tdCtx.stroke();
+            tdCtx.lineCap = 'butt';
         }
         tdCtx.lineWidth = 2;
         tdCtx.strokeStyle = selected ? '#fff4a0' : config.color;
@@ -17845,7 +18007,15 @@ window.addEventListener('load', () => {
     }
 
     function tdLoop(timestamp) {
-        const elapsed = td.lastTime ? Math.min(36, timestamp - td.lastTime) : 16.67;
+        if (document.hidden || window.flappyAppSuspended) {
+            td.lastTime = timestamp;
+            requestAnimationFrame(tdLoop);
+            return;
+        }
+        // Preserve the intended 60 Hz simulation speed on phones that render
+        // below 30 FPS. The previous 36 ms cap made every defense wave run in
+        // slow motion as soon as a device dropped frames.
+        const elapsed = td.lastTime ? Math.min(150, timestamp - td.lastTime) : 16.67;
         td.lastTime = timestamp;
         if (td.active) {
             updateDefense((elapsed / 16.67) * td.speedMultiplier);
@@ -18121,6 +18291,8 @@ let activeInventorySection = 'skins';
 let inventorySearchQuery = '';
 let inventoryRarityFilter = 'all';
 let lastInventoryOwnershipSignature = '';
+let inventoryMenuPage = 1;
+const MOBILE_INVENTORY_PAGE_SIZE = 30;
 
 function inventoryEsc(value) {
     return String(value ?? '').replace(/[&<>'"]/g, character => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' })[character]);
@@ -18146,10 +18318,11 @@ window.hydrateFlappyMenuImages = function(container, scrollRoot = null) {
         }, { once:true });
     };
     const images = [...container.querySelectorAll('img[data-menu-src]')];
-    /* Always hydrate the first several visible rows synchronously. This avoids
-       waiting for IntersectionObserver after a fixed menu has just opened. */
-    images.slice(0, 30).forEach(load);
-    const deferredImages = images.slice(30);
+    /* Hydrate only the first visible rows. Loading every hidden card here made
+       mobile browsers decode hundreds of PNGs before their first game frame. */
+    const initialCount = matchMedia('(max-width: 760px), (pointer: coarse)').matches ? 8 : 18;
+    images.slice(0, initialCount).forEach(load);
+    const deferredImages = images.slice(initialCount);
     if (!('IntersectionObserver' in window)) {
         deferredImages.forEach(load);
         return;
@@ -18160,31 +18333,9 @@ window.hydrateFlappyMenuImages = function(container, scrollRoot = null) {
             observer.unobserve(entry.target);
             load(entry.target);
         });
-    }, { root:scrollRoot, rootMargin:'1500px 240px', threshold:.001 });
+    }, { root:scrollRoot, rootMargin:'480px 100px', threshold:.001 });
     container._flappyImageObserver = observer;
     deferredImages.forEach(image => observer.observe(image));
-
-    /* Warm the remaining local images with low concurrency. The browser keeps
-       decoded assets ready without blocking scrolling or launching hundreds of
-       simultaneous file reads. */
-    const sources = deferredImages.map(image => image.dataset.menuSrc).filter(Boolean);
-    let cursor = 0;
-    let active = 0;
-    const pump = () => {
-        while (active < 4 && cursor < sources.length) {
-            const source = sources[cursor++];
-            if (window._flappyMenuImageCache.has(source)) continue;
-            active += 1;
-            const preload = new Image();
-            window._flappyMenuImageCache.set(source, preload);
-            const done = () => { active -= 1; pump(); };
-            preload.addEventListener('load', done, { once:true });
-            preload.addEventListener('error', done, { once:true });
-            preload.decoding = 'async';
-            preload.src = source;
-        }
-    };
-    (window.requestIdleCallback || (callback => setTimeout(callback, 16)))(pump);
 };
 
 function inventoryAction(label, kind, index, active = false, disabled = false) {
@@ -18275,9 +18426,18 @@ function refreshInventoryMenu() {
     });
     const counts={skins:monkeySkins.filter(item=>item.unlocked).length,titles:titles.filter(item=>item.unlocked||item.name==='None').length,pipes:pipeThemes.filter(item=>item.unlocked).length,styles:titleFXOptions.filter(item=>item.unlocked).length,backgrounds:profileBackgrounds.filter(item=>item.unlocked).length,trails:trails.filter(item=>item.unlocked).length,explosions:explosionVfxOptions.filter(item=>item.unlocked).length,boosts:BOOST_MARKET_ITEMS.reduce((sum,item)=>sum+boostTicketCount(item.id),0),emojis:ownedCustomEmojiIds.size};
     const filtering = Boolean(normalizedSearch) || inventoryRarityFilter !== 'all';
+    const compactInventory = matchMedia('(max-width:760px), (max-height:520px) and (orientation:landscape)').matches;
+    const pageCount = compactInventory ? Math.max(1, Math.ceil(visibleCards.length / MOBILE_INVENTORY_PAGE_SIZE)) : 1;
+    inventoryMenuPage = Math.max(1, Math.min(pageCount, inventoryMenuPage));
+    const renderedCards = compactInventory
+        ? visibleCards.slice((inventoryMenuPage - 1) * MOBILE_INVENTORY_PAGE_SIZE, inventoryMenuPage * MOBILE_INVENTORY_PAGE_SIZE)
+        : visibleCards;
     document.getElementById('inventorySummary').textContent=filtering ? `${visibleCards.length} of ${cards.length} shown` : `${counts[activeInventorySection] || 0} unlocked / available`;
     document.getElementById('inventorySearchClear').disabled=!inventorySearchQuery;
-    grid.innerHTML=visibleCards.length?visibleCards.join(''):`<div class="inventory-empty">${filtering ? 'No unlocked items match those filters.' : 'Nothing unlocked in this section yet. Keep playing or visit the Banana Market.'}</div>`;
+    const pager = compactInventory && visibleCards.length > MOBILE_INVENTORY_PAGE_SIZE
+        ? `<nav class="inventory-menu-pager" aria-label="Inventory pages"><button type="button" data-inventory-page="${inventoryMenuPage - 1}" ${inventoryMenuPage <= 1 ? 'disabled' : ''}>Previous</button><span>Page ${inventoryMenuPage} of ${pageCount}</span><button type="button" data-inventory-page="${inventoryMenuPage + 1}" ${inventoryMenuPage >= pageCount ? 'disabled' : ''}>Next</button></nav>`
+        : '';
+    grid.innerHTML=visibleCards.length?renderedCards.join('') + pager:`<div class="inventory-empty">${filtering ? 'No unlocked items match those filters.' : 'Nothing unlocked in this section yet. Keep playing or visit the Banana Market.'}</div>`;
     window.hydrateFlappyMenuImages(grid, document.getElementById('inventoryMenu'));
     lastInventoryOwnershipSignature = inventoryOwnershipSignature();
 }
@@ -18309,15 +18469,18 @@ window.openFlappyInventory = () => setInventoryMenuOpen(true);
 window.closeFlappyInventory = () => setInventoryMenuOpen(false);
 document.getElementById('inventoryBtn').addEventListener('click',()=>setInventoryMenuOpen(true));
 document.getElementById('closeInventory').addEventListener('click',()=>setInventoryMenuOpen(false));
-document.getElementById('inventorySearch').addEventListener('input',event=>{inventorySearchQuery=event.currentTarget.value;refreshInventoryMenu();});
-document.getElementById('inventorySearchClear').addEventListener('click',()=>{inventorySearchQuery='';const input=document.getElementById('inventorySearch');input.value='';input.focus();refreshInventoryMenu();});
-document.getElementById('inventoryRarityFilter').addEventListener('change',event=>{inventoryRarityFilter=event.currentTarget.value;refreshInventoryMenu();});
+let inventorySearchFrame = 0;
+document.getElementById('inventorySearch').addEventListener('input',event=>{inventorySearchQuery=event.currentTarget.value;inventoryMenuPage=1;cancelAnimationFrame(inventorySearchFrame);inventorySearchFrame=requestAnimationFrame(refreshInventoryMenu);});
+document.getElementById('inventorySearchClear').addEventListener('click',()=>{inventorySearchQuery='';inventoryMenuPage=1;const input=document.getElementById('inventorySearch');input.value='';input.focus();refreshInventoryMenu();});
+document.getElementById('inventoryRarityFilter').addEventListener('change',event=>{inventoryRarityFilter=event.currentTarget.value;inventoryMenuPage=1;refreshInventoryMenu();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&document.getElementById('inventoryMenu')?.classList.contains('open')){event.preventDefault();event.stopPropagation();setInventoryMenuOpen(false);}},true);
 document.getElementById('inventoryMenu').addEventListener('click',event=>{
+    const pageButton=event.target.closest('[data-inventory-page]');
+    if(pageButton&&!pageButton.disabled){inventoryMenuPage=Number(pageButton.dataset.inventoryPage)||1;refreshInventoryMenu();document.getElementById('inventoryMenu').scrollTo({top:0,behavior:'instant'});return;}
     const editStyle=event.target.closest('[data-skin-edit-style]');
     if(editStyle){event.preventDefault();event.stopPropagation();chooseSkinEditStyle('Jade',editStyle.dataset.skinEditStyle,true);return;}
     const section=event.target.closest('[data-inventory-section]');
-    if(section){activeInventorySection=section.dataset.inventorySection;refreshInventoryMenu();return;}
+    if(section){activeInventorySection=section.dataset.inventorySection;inventoryMenuPage=1;refreshInventoryMenu();return;}
     const action=event.target.closest('[data-inventory-kind]');
     if(!action||action.disabled)return;
     const index=Number(action.dataset.inventoryIndex),kind=action.dataset.inventoryKind;
@@ -19421,6 +19584,7 @@ applyProfileTheme();
 <script src="monkey-world-renderer.js"></script>
 <script src="multiplayer.js"></script>
 <script src="pwa.js"></script>
+<script src="mobile-ui.js"></script>
 <style id="controller-accessibility-upgrade">
     :root { --shake-scale: 1; }
     #settingsPopup .settings-box { width:min(900px,100%); max-height:90vh; overflow:auto; text-align:left; }

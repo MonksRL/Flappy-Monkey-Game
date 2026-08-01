@@ -1749,17 +1749,23 @@
     function monkeyWorldViewport() {
         const canvas = elements.monkeyWorldCanvas;
         const rect = canvas.getBoundingClientRect();
-        const viewWidth = Math.max(640, Math.round(rect.width || innerWidth));
-        const viewHeight = Math.max(360, Math.round(rect.height || innerHeight));
-        const density = Math.min(1.75, Math.max(1, Number(devicePixelRatio) || 1));
-        const pixelWidth = Math.round(viewWidth * density);
-        const pixelHeight = Math.round(viewHeight * density);
+        const cssWidth = Math.max(1, Math.round(rect.width || innerWidth));
+        const cssHeight = Math.max(1, Math.round(rect.height || innerHeight));
+        // Preserve the phone's real aspect ratio and zoom its camera out. The
+        // old 640px minimum squeezed a landscape buffer into portrait.
+        const mobileCameraZoom = LOCAL_MOBILE_DEVICE || matchMedia('(pointer: coarse)').matches ? 1.62 : 1;
+        const viewWidth = Math.min(MONKEY_WORLD_WIDTH, Math.round(cssWidth * mobileCameraZoom));
+        const viewHeight = Math.min(MONKEY_WORLD_HEIGHT, Math.round(cssHeight * mobileCameraZoom));
+        const mobileWorld = LOCAL_MOBILE_DEVICE || matchMedia('(pointer: coarse)').matches || cssWidth <= 760;
+        const density = Math.min(mobileWorld ? 1.35 : 1.75, Math.max(1, Number(devicePixelRatio) || 1));
+        const pixelWidth = Math.round(cssWidth * density);
+        const pixelHeight = Math.round(cssHeight * density);
         if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
             canvas.width = pixelWidth;
             canvas.height = pixelHeight;
         }
         const context = canvas.getContext('2d');
-        context.setTransform(density, 0, 0, density, 0, 0);
+        context.setTransform(pixelWidth / viewWidth, 0, 0, pixelHeight / viewHeight, 0, 0);
         return { context, viewWidth, viewHeight };
     }
 
@@ -1957,8 +1963,11 @@
             context.beginPath(); context.arc(building.doorX, building.doorY + 8, near ? 66 + pulse * 8 : 43, 0, Math.PI * 2); context.fill();
             if (near) {
                 context.fillStyle = '#fff4a1'; context.strokeStyle = '#173d30'; context.lineWidth = 6; context.font = '900 17px Arial';
-                context.strokeText(`E · ENTER ${building.name.toUpperCase()}`, building.doorX, building.doorY + 84);
-                context.fillText(`E · ENTER ${building.name.toUpperCase()}`, building.doorX, building.doorY + 84);
+                const enterPrompt = LOCAL_MOBILE_DEVICE || matchMedia('(pointer: coarse)').matches
+                    ? `TAP TO ENTER ${building.name.toUpperCase()}`
+                    : `E · ENTER ${building.name.toUpperCase()}`;
+                context.strokeText(enterPrompt, building.doorX, building.doorY + 84);
+                context.fillText(enterPrompt, building.doorX, building.doorY + 84);
             }
         }
         const players = [...monkeyWorld.players.values()].filter((player) => player.profileId !== state.account?.id);
@@ -1981,7 +1990,12 @@
 
     function monkeyWorldLoop(now) {
         if (!monkeyWorld.active || !monkeyWorld.joined) { monkeyWorld.animationFrame = null; return; }
-        const delta = Math.min(.05, Math.max(0, (now - monkeyWorld.lastTick) / 1000));
+        if (document.hidden || window.flappyAppSuspended) {
+            monkeyWorld.lastTick = now;
+            monkeyWorld.animationFrame = requestAnimationFrame(monkeyWorldLoop);
+            return;
+        }
+        const delta = Math.min(.15, Math.max(0, (now - monkeyWorld.lastTick) / 1000));
         monkeyWorld.lastTick = now;
         let dx = 0, dy = 0;
         if (monkeyWorld.keys.has('KeyW') || monkeyWorld.keys.has('ArrowUp')) dy -= 1;
@@ -2010,8 +2024,9 @@
             if (isWorldWalkable(monkeyWorld.x, nextY) && !collidesWorldBuilding(monkeyWorld.x, nextY)) monkeyWorld.y = nextY;
             monkeyWorld.direction = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
         }
-        const viewWidth = Math.max(640, elements.monkeyWorldCanvas.clientWidth || innerWidth);
-        const viewHeight = Math.max(360, elements.monkeyWorldCanvas.clientHeight || innerHeight);
+        const mobileCameraZoom = LOCAL_MOBILE_DEVICE || matchMedia('(pointer: coarse)').matches ? 1.62 : 1;
+        const viewWidth = Math.min(MONKEY_WORLD_WIDTH, (elements.monkeyWorldCanvas.clientWidth || innerWidth) * mobileCameraZoom);
+        const viewHeight = Math.min(MONKEY_WORLD_HEIGHT, (elements.monkeyWorldCanvas.clientHeight || innerHeight) * mobileCameraZoom);
         const targetCameraX = Math.max(0, Math.min(MONKEY_WORLD_WIDTH - viewWidth, monkeyWorld.x - viewWidth / 2));
         const targetCameraY = Math.max(0, Math.min(MONKEY_WORLD_HEIGHT - viewHeight, monkeyWorld.y - viewHeight / 2));
         const cameraEase = Math.min(1, delta * 7.5);
@@ -2026,7 +2041,11 @@
             monkeyWorld.lastRosterSyncAt = now;
             send({ type: 'get_monkey_world_state' });
         }
-        drawMonkeyWorld(now);
+        const mobileWorld = LOCAL_MOBILE_DEVICE || matchMedia('(pointer: coarse)').matches || innerWidth <= 760;
+        if (!mobileWorld || !monkeyWorld.lastRenderAt || now - monkeyWorld.lastRenderAt >= 30) {
+            drawMonkeyWorld(now);
+            monkeyWorld.lastRenderAt = now;
+        }
         monkeyWorld.animationFrame = requestAnimationFrame(monkeyWorldLoop);
     }
 
@@ -4606,16 +4625,35 @@
 
     function raceLoop(now) {
         if (!race.active) { race.animationFrame = null; return; }
+        if (document.hidden || window.flappyAppSuspended) {
+            race.lastTick = now;
+            race.accumulator = 0;
+            race.animationFrame = requestAnimationFrame(raceLoop);
+            return;
+        }
         if (!race.started && Date.now() >= race.localStartAt) {
             race.started = true;
             race.lastTick = now;
+            race.accumulator = 0;
             sendRaceState(true);
         }
+        const elapsed = Math.min(250, Math.max(0, now - race.lastTick));
         race.lastTick = now;
         if (race.started) {
-            // Offline Flappy Monkey calls update() once per animation frame.
-            // Using the same loop preserves its speed on high-refresh displays.
-            updateRaceStep();
+            if (!LOCAL_MOBILE_DEVICE) {
+                // Match the original high-refresh desktop race behavior.
+                updateRaceStep();
+                race.accumulator = 0;
+            } else {
+                race.accumulator += elapsed;
+                let updateCount = 0;
+                while (race.accumulator >= STEP && updateCount < 15) {
+                    updateRaceStep();
+                    race.accumulator -= STEP;
+                    updateCount += 1;
+                }
+                if (updateCount === 15) race.accumulator %= STEP;
+            }
             sendRaceState(false);
         }
         drawRace();
@@ -5397,8 +5435,28 @@
     onlineDefense.selectedTower = OFFLINE_DEFENSE_CATALOG.order[0] || 'torn';
     elements.odTowerDeck.innerHTML = OFFLINE_DEFENSE_CATALOG.order.map((id, index) => {
         const tower = DEFENSE_TOWERS[id];
-        return `<button class="od-tower ${index === 0 ? 'active' : ''}" data-od-tower="${escapeHtml(id)}" type="button"><img src="${escapeHtml(tower.file)}" alt=""><span><strong>${escapeHtml(tower.name)}</strong><small>${Number(tower.cost)} Bananas · Defense Power: ${escapeHtml(tower.defenseTier || tower.rarity || 'Standard')} · ${escapeHtml(tower.hint)}</small></span></button>`;
+        return `<button class="od-tower ${index === 0 ? 'active' : ''}" data-od-tower="${escapeHtml(id)}" type="button"><img data-menu-src="${escapeHtml(tower.file)}" alt="" decoding="async"><span><strong>${escapeHtml(tower.name)}</strong><small>${Number(tower.cost)} Bananas · Defense Power: ${escapeHtml(tower.defenseTier || tower.rarity || 'Standard')} · ${escapeHtml(tower.hint)}</small></span></button>`;
     }).join('');
+
+    function hydrateOnlineDefenseDeck() {
+        const images = [...elements.odTowerDeck.querySelectorAll('img[data-menu-src]')];
+        const load = (image) => {
+            if (!image?.dataset.menuSrc) return;
+            image.src = image.dataset.menuSrc;
+            delete image.dataset.menuSrc;
+        };
+        if (!('IntersectionObserver' in window)) {
+            images.slice(0, matchMedia('(max-width:760px), (pointer:coarse)').matches ? 8 : 18).forEach(load);
+            return;
+        }
+        const observer = new IntersectionObserver((entries) => entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            load(entry.target);
+            observer.unobserve(entry.target);
+        }), { root:elements.odTowerDeck, rootMargin:'360px 0px' });
+        images.forEach((image) => observer.observe(image));
+    }
+    hydrateOnlineDefenseDeck();
 
     function defenseMe() {
         return onlineDefense.room?.players?.find((player) => player.id === state.playerId) || null;
@@ -6758,6 +6816,12 @@
 
     function defenseFrame() {
         if (!onlineDefense.active) return;
+        if (document.hidden || window.flappyAppSuspended) {
+            onlineDefense.lastFrameAt = Date.now();
+            onlineDefense.lastSimulationAt = Date.now();
+            onlineDefense.animationFrame = requestAnimationFrame(defenseFrame);
+            return;
+        }
         const now = Date.now();
         if (!onlineDefense.readySent && now >= onlineDefense.localStartAt - 450) {
             onlineDefense.readySent = true;
@@ -6836,7 +6900,10 @@
         if (onlineDefense.animationFrame) cancelAnimationFrame(onlineDefense.animationFrame);
         if (onlineDefense.simulationTimer) clearInterval(onlineDefense.simulationTimer);
         onlineDefense.simulationTimer = setInterval(() => {
-            if (!onlineDefense.active) return;
+            if (!onlineDefense.active || document.hidden || window.flappyAppSuspended) {
+                onlineDefense.lastSimulationAt = Date.now();
+                return;
+            }
             advanceDefenseSimulation(Date.now());
             reportDefenseProgress();
         }, 50);
