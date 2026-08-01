@@ -6729,8 +6729,26 @@ if (selectedTitle && selectedTitle !== 'None') {
             if (confettiParticles.length > 0) drawConfetti();
         }
 
-        function gameLoop() {
-            update();
+        // Keep gameplay physics at the same speed on 30 Hz, 60 Hz, 90 Hz,
+        // and 120 Hz displays. Rendering may skip frames on a slower phone,
+        // but gravity, jumps, pipes, collisions, and frame-based effects still
+        // advance at the original 60 updates per second.
+        const GAME_UPDATE_MS = 1000 / 60;
+        const MAX_GAME_UPDATES_PER_FRAME = 8;
+        let previousGameLoopTime = 0;
+        let gameUpdateAccumulator = 0;
+        function gameLoop(timestamp) {
+            if (!previousGameLoopTime) previousGameLoopTime = timestamp;
+            const elapsed = Math.min(250, Math.max(0, timestamp - previousGameLoopTime));
+            previousGameLoopTime = timestamp;
+            gameUpdateAccumulator += elapsed;
+            let updateCount = 0;
+            while (gameUpdateAccumulator >= GAME_UPDATE_MS && updateCount < MAX_GAME_UPDATES_PER_FRAME) {
+                update();
+                gameUpdateAccumulator -= GAME_UPDATE_MS;
+                updateCount++;
+            }
+            if (updateCount === MAX_GAME_UPDATES_PER_FRAME) gameUpdateAccumulator = 0;
             draw();
             requestAnimationFrame(gameLoop);
         }
