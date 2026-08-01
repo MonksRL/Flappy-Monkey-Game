@@ -38,8 +38,32 @@
     });
 
     if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch((error) => {
-            console.warn('Mobile app offline support could not start:', error);
-        }));
+        const hadControllerAtLaunch = Boolean(navigator.serviceWorker.controller);
+        let reloadingForUpdate = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (!hadControllerAtLaunch || reloadingForUpdate) return;
+            reloadingForUpdate = true;
+            location.reload();
+        });
+
+        window.addEventListener('load', async () => {
+            try {
+                // A versioned worker URL and updateViaCache:none bypass stale
+                // installed-app/HTTP caches immediately after a deployment.
+                const registration = await navigator.serviceWorker.register('service-worker.js?v=8', {
+                    updateViaCache: 'none'
+                });
+                await registration.update();
+                registration.waiting?.postMessage({ type:'SKIP_WAITING' });
+
+                const checkForUpdate = () => {
+                    if (document.visibilityState === 'visible') registration.update().catch(() => {});
+                };
+                document.addEventListener('visibilitychange', checkForUpdate);
+                window.addEventListener('online', checkForUpdate);
+            } catch (error) {
+                console.warn('Mobile app offline support could not start:', error);
+            }
+        });
     }
 })();
