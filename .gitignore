@@ -1,0 +1,34 @@
+﻿node_modules/
+dist/
+*.exe
+*.blockmap
+*.yml
+*.asar
+.DS_Store
+Thumbs.db
+server-data/
+multiplayer-config.json
+.env
+.env.*
+*.bak
+github-server-upload/
+tmp/
+.agents/
+*.log
+
+# Private multiplayer/server source stays in the separate private server repo.
+multiplayer-server.js
+online-defense-server.js
+multiplayer-server.test.js
+smtp-test.js
+preview-server.js
+ONLINE_SETUP.md
+
+# Local verification and project-maintenance files are not part of the game client.
+*.test.js
+check-inline-scripts.js
+process-crate-icons.py
+process-open-crate-icons.py
+BUILD-AND-UPLOAD-GAME-EXE.txt
+CURRENT-REQUEST-AUDIT.md
+FEATURE-IMPLEMENTATION-CHECKLIST.md
