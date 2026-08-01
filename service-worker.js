@@ -1,12 +1,19 @@
 'use strict';
 
-const CACHE_VERSION = 'flappy-monkey-mobile-v10';
+const CACHE_VERSION = 'flappy-monkey-mobile-v11';
 const APP_SHELL = [
-    './index.html', './manifest.json?v=10', './mobile.css?v=10', './multiplayer.css?v=10',
-    './birthday-event.css?v=10', './game-dialog.css?v=10', './game-dialog.js?v=10', './birthday-event.js?v=10',
-    './account-storage.js?v=10', './multiplayer-client-config.js?v=10', './monkey-world-renderer.js?v=10',
-    './multiplayer.js?v=10', './pwa.js?v=10', './mobile-ui.js?v=10',
+    './index.html', './manifest.json?v=11', './mobile.css?v=11', './multiplayer.css?v=11',
+    './birthday-event.css?v=11', './game-dialog.css?v=11', './game-dialog.js?v=11', './birthday-event.js?v=11',
+    './account-storage.js?v=11', './multiplayer-client-config.js?v=11', './monkey-world-renderer.js?v=11',
+    './multiplayer.js?v=11', './pwa.js?v=11', './mobile-ui.js?v=11',
     './monkey-192.png', './monkey-512.png', './Default Monkey.png'
+].map((path) => new URL(path, self.registration.scope).href);
+const CRITICAL_ART = [
+    ...['wonks','zombie','vampire','skeleton','mummy','frankenstein','ghost']
+        .map((id) => `./defense-art/pests/${id}.webp?flappy-defense=mobile-v11-1`),
+    ...['torn','soldier','attackhelicopter']
+        .map((id) => `./defense-art/towers/${id}.webp?flappy-defense=mobile-v11-1`),
+    './attack-helicopter-defender.webp?flappy-defense=mobile-v11-1'
 ].map((path) => new URL(path, self.registration.scope).href);
 const OFFLINE_DOCUMENT = new URL('./index.html', self.registration.scope).href;
 
@@ -19,6 +26,19 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('message', (event) => {
     if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+    if (event.data?.type === 'WARM_CRITICAL_ART') {
+        event.waitUntil((async () => {
+            const cache = await caches.open(CACHE_VERSION);
+            for (let index = 0; index < CRITICAL_ART.length; index += 3) {
+                await Promise.allSettled(CRITICAL_ART.slice(index, index + 3).map(async (url) => {
+                    if (await cache.match(url)) return;
+                    const request = new Request(url, { cache:'reload' });
+                    const response = await fetch(request);
+                    if (response.ok) await cache.put(request, response);
+                }));
+            }
+        })());
+    }
 });
 
 self.addEventListener('activate', (event) => {

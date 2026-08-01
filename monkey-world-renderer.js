@@ -27,6 +27,7 @@
             this.backgroundImage = new Image();
             this.backgroundReady = false;
             const mobileViewport = matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+            this.mobileOptimized = mobileViewport;
             this.backgroundSources = mobileViewport
                 ? ['monkey-world-banana-coast-mobile.webp', 'monkey-world-banana-coast.webp', 'monkey-world-banana-coast.png']
                 : ['monkey-world-banana-coast.webp', 'monkey-world-banana-coast.png'];
@@ -470,10 +471,25 @@
 
         render(context, { cameraX, cameraY, viewWidth, viewHeight, now, buildings }) {
             context.clearRect(0, 0, viewWidth, viewHeight);
-            context.save();
-            context.translate(-cameraX, -cameraY);
-            if ((this.backgroundReady || this.backgroundImage.complete) && this.backgroundImage.naturalWidth) this.drawIllustratedBackground(context, now);
-            else {
+            const ready = (this.backgroundReady || this.backgroundImage.complete) && this.backgroundImage.naturalWidth;
+            if (ready && this.mobileOptimized) {
+                // The phone only needs the camera's visible crop. Drawing the
+                // entire 3200×1800 coast plus animated ocean/light overlays on
+                // every movement frame was the largest Monkey World GPU cost.
+                const sourceScaleX = this.backgroundImage.naturalWidth / this.width;
+                const sourceScaleY = this.backgroundImage.naturalHeight / this.height;
+                context.drawImage(
+                    this.backgroundImage,
+                    cameraX * sourceScaleX, cameraY * sourceScaleY,
+                    viewWidth * sourceScaleX, viewHeight * sourceScaleY,
+                    0, 0, viewWidth, viewHeight
+                );
+            } else if (ready) {
+                context.save();
+                context.translate(-cameraX, -cameraY);
+                this.drawIllustratedBackground(context, now);
+                context.restore();
+            } else {
                 // Do not render an entirely different procedural town while the
                 // real coast artwork is downloading. Besides looking wrong, that
                 // fallback drew hundreds of shapes every frame on the slowest
@@ -487,16 +503,16 @@
                 context.fillRect(0, 0, this.width, this.height);
                 context.fillStyle = 'rgba(255,239,139,.16)';
                 context.beginPath();
-                context.arc(this.width / 2, this.height / 2, 260 + Math.sin(now * .002) * 12, 0, TAU);
+                context.arc(viewWidth / 2, viewHeight / 2, Math.min(viewWidth, viewHeight) * .24, 0, TAU);
                 context.fill();
             }
             context.globalAlpha = 1;
-            context.restore();
-
-            const vignette = context.createRadialGradient(viewWidth / 2, viewHeight / 2, viewHeight * .25, viewWidth / 2, viewHeight / 2, Math.max(viewWidth, viewHeight) * .72);
-            vignette.addColorStop(0, 'rgba(0,0,0,0)');
-            vignette.addColorStop(1, 'rgba(2,24,35,.22)');
-            context.fillStyle = vignette; context.fillRect(0, 0, viewWidth, viewHeight);
+            if (!this.mobileOptimized) {
+                const vignette = context.createRadialGradient(viewWidth / 2, viewHeight / 2, viewHeight * .25, viewWidth / 2, viewHeight / 2, Math.max(viewWidth, viewHeight) * .72);
+                vignette.addColorStop(0, 'rgba(0,0,0,0)');
+                vignette.addColorStop(1, 'rgba(2,24,35,.22)');
+                context.fillStyle = vignette; context.fillRect(0, 0, viewWidth, viewHeight);
+            }
         }
     }
 

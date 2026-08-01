@@ -13,14 +13,14 @@
     <link rel="icon" href="icon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="icon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="monkey-192.png">
-    <script>document.documentElement.dataset.appBuild = 'mobile-v10'; if (location.protocol === 'http:' || location.protocol === 'https:') { const manifest = document.createElement('link'); manifest.rel = 'manifest'; manifest.href = 'manifest.json?v=10'; document.head.appendChild(manifest); }</script>
-    <link rel="stylesheet" href="multiplayer.css?v=10">
-    <link rel="stylesheet" href="birthday-event.css?v=10">
-    <link rel="stylesheet" href="game-dialog.css?v=10">
-    <link rel="stylesheet" href="mobile.css?v=10">
-    <script src="game-dialog.js?v=10"></script>
-    <script src="birthday-event.js?v=10"></script>
-    <script src="account-storage.js?v=10"></script>
+    <script>document.documentElement.dataset.appBuild = 'mobile-v11'; if (/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) || matchMedia('(pointer: coarse)').matches) document.documentElement.classList.add('mobile-performance'); if (location.protocol === 'http:' || location.protocol === 'https:') { const manifest = document.createElement('link'); manifest.rel = 'manifest'; manifest.href = 'manifest.json?v=11'; document.head.appendChild(manifest); }</script>
+    <link rel="stylesheet" href="multiplayer.css?v=11">
+    <link rel="stylesheet" href="birthday-event.css?v=11">
+    <link rel="stylesheet" href="game-dialog.css?v=11">
+    <link rel="stylesheet" href="mobile.css?v=11">
+    <script src="game-dialog.js?v=11"></script>
+    <script src="birthday-event.js?v=11"></script>
+    <script src="account-storage.js?v=11"></script>
     <script>
         // Run a final progress wipe before any game variables read localStorage.
         // This prevents late timers from restoring XP, scores, or achievements
@@ -1691,7 +1691,7 @@ button:hover {
         <section class="mobile-more-panel" role="dialog" aria-modal="true" aria-labelledby="mobileMoreTitle">
             <div class="mobile-more-handle" aria-hidden="true"></div>
             <div class="mobile-more-heading">
-                <div><strong id="mobileMoreTitle">More</strong><span>Game menus and settings · Build mobile-v10</span></div>
+                <div><strong id="mobileMoreTitle">More</strong><span>Game menus and settings · Build mobile-v11</span></div>
                 <button id="mobileMoreClose" type="button" aria-label="Close more menu">✕</button>
             </div>
             <div class="mobile-more-grid">
@@ -1702,6 +1702,7 @@ button:hover {
                 <button type="button" data-mobile-proxy="collectionIndexBtn">📖 <span>Collection Index</span></button>
                 <button type="button" data-mobile-proxy="dailyQuestBtn">📅 <span>Daily Quests</span></button>
                 <button type="button" data-mobile-proxy="profileBtn">👤 <span>Profile</span></button>
+                <button type="button" data-mobile-proxy="secretSockBtn">🧦 <span>Sock Secret</span></button>
                 <button type="button" data-mobile-proxy="installAppBtn" data-mobile-install>📲 <span>Install App</span></button>
             </div>
         </section>
@@ -5448,8 +5449,17 @@ function checkProfileUnlocks() {
             });
         }
 
+        const MOBILE_REAL_TIME_GAMEPLAY = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent)
+            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+            || matchMedia('(pointer: coarse)').matches;
+        const MOBILE_LOGICAL_FRAME_SCALE = 2;
+
         function update() {
             if (!started || countdownActive || victory || gameOverFlag) return;
+            // One phone update represents two of the original high-refresh
+            // desktop frames. This preserves gravity and pipe speed without
+            // making a weak phone execute update() 120 times every second.
+            const logicalFrames = MOBILE_REAL_TIME_GAMEPLAY ? MOBILE_LOGICAL_FRAME_SCALE : 1;
             if (titleRGBEnabled) titleHue = (titleHue + titleRGBSpeed) % 360;
             let effectiveGravity = GRAVITY;
             let effectivePipeSpeedMult = 1;
@@ -5468,9 +5478,9 @@ function checkProfileUnlocks() {
                 effectiveGravity *= 0.72;
                 monkey.vel = Math.max(monkey.vel, -4.9);
             }
-            monkey.vel += effectiveGravity;
-            monkey.y += monkey.vel;
-            frame++;
+            monkey.y += monkey.vel * logicalFrames + effectiveGravity * logicalFrames * (logicalFrames + 1) / 2;
+            monkey.vel += effectiveGravity * logicalFrames;
+            frame += logicalFrames;
             if (frame >= nextSpawn) addPipe();
             if (selectedMode === 'glitch' && frame - lastGlitchTrigger > 300 && Math.random() < 0.0012) {
                 glitchUntil = frame + GLITCH_DURATION_FRAMES + Math.random() * 40;
@@ -5620,7 +5630,7 @@ function checkProfileUnlocks() {
             }
             let hit = false;
             for (let p of pipes) {
-                p.x -= p.speed * effectivePipeSpeedMult;
+                p.x -= p.speed * effectivePipeSpeedMult * logicalFrames;
                 let osc = p.oscAmp ? Math.sin(frame * 0.021 + p.oscPhase) * p.oscAmp : 0;
                 let top = Math.max(80, Math.min(GROUND_Y - p.gap - 80, p.baseTop + osc));
                 const bottom = top + p.gap;
@@ -5664,8 +5674,8 @@ function checkProfileUnlocks() {
             pipes = pipes.filter(p => p.x + 68 > -50);
             for (let i = powerups.length - 1; i >= 0; i--) {
                 const p = powerups[i];
-                p.x -= 1.75;
-                p.bobPhase += 0.18;
+                p.x -= 1.75 * logicalFrames;
+                p.bobPhase += 0.18 * logicalFrames;
                 const dx = (p.x + 18) - (monkey.x + monkey.size/2);
                 const dy = (p.y + 18 + Math.sin(p.bobPhase)*4) - (monkey.y + monkey.size/2);
                 if (dx*dx + dy*dy < 48*48) {
@@ -6763,19 +6773,11 @@ if (selectedTitle && selectedTitle !== 'None') {
             if (confettiParticles.length > 0) drawConfetti();
         }
 
-        // The original game advanced once per display refresh and was tuned on
-        // high-refresh desktop screens. Phones commonly cap browser rendering
-        // at 60/30 Hz, so run mobile physics at 120 Hz independently of drawing.
-        // This keeps gravity, jumps, and pipe movement real-time even when a
-        // slower device can render only a fraction of those simulation steps.
-        const MOBILE_GAME_UPDATE_MS = 1000 / 120;
-        // Preserve up to half a second on severely overloaded phones. The
-        // simulation work is cheap; throwing this time away is what makes
-        // gravity and pipes look like slow motion on low-frame-rate devices.
-        const MAX_GAME_UPDATES_PER_FRAME = 60;
-        const MOBILE_REAL_TIME_GAMEPLAY = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent)
-            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-            || matchMedia('(pointer: coarse)').matches;
+        // Phones update from elapsed time at 60 Hz. Each update advances two
+        // original logical frames above, producing the same 120-frame feel as
+        // v10 with roughly half the simulation work.
+        const MOBILE_GAME_UPDATE_MS = 1000 / 60;
+        const MAX_GAME_UPDATES_PER_FRAME = 12;
         let previousGameLoopTime = 0;
         let gameUpdateAccumulator = 0;
         let lastIdleGameDraw = 0;
@@ -7929,7 +7931,7 @@ function cosmeticIconPath(category, id) {
         const div = document.createElement('div');
         div.className = `shop-option ${t.unlocked && t.id === selectedTrail ? 'selected' : ''}`;
         let priceHTML = t.id === 'none' ? 'Always Free' : t.unlocked ? 'Owned' : t.passOnly ? 'Banana Pass' : `${t.cost} 🍌`;
-        div.innerHTML = `<img class="banana-market-cosmetic-icon" src="${cosmeticIconPath('trail', t.id)}" alt="" loading="lazy" decoding="async"><h3>${t.name}</h3><div class="price">${priceHTML}</div><div class="desc">Trail behind your monkey</div>`;
+        div.innerHTML = `<img class="banana-market-cosmetic-icon" data-menu-src="${cosmeticIconPath('trail', t.id)}" alt="" loading="lazy" decoding="async"><h3>${t.name}</h3><div class="price">${priceHTML}</div><div class="desc">Trail behind your monkey</div>`;
         
         div.onclick = () => {
             if (t.unlocked || t.id === 'none') {
@@ -7960,7 +7962,7 @@ function cosmeticIconPath(category, id) {
 
         const div = document.createElement('div');
         div.className = `shop-option ${owned > 0 ? 'selected' : ''}`;
-        const powerupHeading = `<h3 class="banana-market-powerup-heading">${boost.file ? `<img class="banana-market-powerup-icon" src="${boost.file}" alt="" loading="lazy">` : `<span style="font-size:34px" aria-hidden="true">${boost.icon || '⚡'}</span>`}<span>${boost.name}</span></h3>`;
+        const powerupHeading = `<h3 class="banana-market-powerup-heading">${boost.file ? `<img class="banana-market-powerup-icon" data-menu-src="${boost.file}" alt="" loading="lazy" decoding="async">` : `<span style="font-size:34px" aria-hidden="true">${boost.icon || '⚡'}</span>`}<span>${boost.name}</span></h3>`;
 
         if (isHardcore && ['extraLifeToken','scoreBooster','revive'].includes(boost.id)) {
             div.innerHTML = `${powerupHeading}<div class="price" style="color:#ff6666;">Disabled in Hardcore</div><div class="desc">${boost.desc}</div>`;
@@ -8007,7 +8009,7 @@ function cosmeticIconPath(category, id) {
         const lockedIndexReward = effect.indexReward && !effect.unlocked;
         const card = document.createElement('div');
         card.className = `shop-option ${equipped ? 'selected' : ''}`;
-        card.innerHTML = `<img class="banana-market-cosmetic-icon" src="${cosmeticIconPath('vfx', effect.id)}" alt="" loading="lazy" decoding="async"><h3>${effect.name}</h3><div class="price">${effect.unlocked ? (equipped ? 'Equipped' : 'Owned') : lockedIndexReward ? 'Collection Index Reward' : `${effect.cost} 🍌`}</div><div class="desc">${lockedIndexReward ? 'Complete and claim the Collection Index to unlock.' : effect.description}</div><button class="boost-shop-toggle" type="button">${effect.unlocked ? (equipped ? 'Equipped' : 'Equip Effect') : lockedIndexReward ? 'Locked' : 'Buy Effect'}</button>`;
+        card.innerHTML = `<img class="banana-market-cosmetic-icon" data-menu-src="${cosmeticIconPath('vfx', effect.id)}" alt="" loading="lazy" decoding="async"><h3>${effect.name}</h3><div class="price">${effect.unlocked ? (equipped ? 'Equipped' : 'Owned') : lockedIndexReward ? 'Collection Index Reward' : `${effect.cost} 🍌`}</div><div class="desc">${lockedIndexReward ? 'Complete and claim the Collection Index to unlock.' : effect.description}</div><button class="boost-shop-toggle" type="button">${effect.unlocked ? (equipped ? 'Equipped' : 'Equip Effect') : lockedIndexReward ? 'Locked' : 'Buy Effect'}</button>`;
         const button = card.querySelector('button');
         button.disabled = equipped || lockedIndexReward;
         button.addEventListener('click', event => {
@@ -8038,7 +8040,7 @@ function cosmeticIconPath(category, id) {
         const owned = ownedCustomEmojiIds.has(emoji.id);
         const card = document.createElement('div');
         card.className = `shop-option emoji-shop-option ${owned ? 'selected' : ''}`;
-        card.innerHTML = `<img class="emoji-shop-preview" src="${emoji.file}" alt="${emoji.name}"><h3>${emoji.name}</h3><div class="price">${owned ? 'Owned' : `${CUSTOM_EMOJI_COST} 🍌`}</div><div class="desc">${owned ? 'Available in every online message picker' : 'Unlock for friend, group, global, and Monkey World chat'}</div><button class="emoji-shop-buy" type="button" ${owned ? 'disabled' : ''}>${owned ? 'Owned' : `Buy for ${CUSTOM_EMOJI_COST} Bananas`}</button>`;
+        card.innerHTML = `<img class="emoji-shop-preview" data-menu-src="${emoji.file}" alt="${emoji.name}" loading="lazy" decoding="async"><h3>${emoji.name}</h3><div class="price">${owned ? 'Owned' : `${CUSTOM_EMOJI_COST} 🍌`}</div><div class="desc">${owned ? 'Available in every online message picker' : 'Unlock for friend, group, global, and Monkey World chat'}</div><button class="emoji-shop-buy" type="button" ${owned ? 'disabled' : ''}>${owned ? 'Owned' : `Buy for ${CUSTOM_EMOJI_COST} Bananas`}</button>`;
         if (!owned) {
             card.querySelector('.emoji-shop-buy').onclick = () => {
                 if (monkeyCoins < CUSTOM_EMOJI_COST) {
@@ -8063,7 +8065,7 @@ function cosmeticIconPath(category, id) {
     pipeThemes.forEach(pt => {
         const div = document.createElement('div');
         div.className = `shop-option ${pt.unlocked && pt.id === selectedPipeTheme ? 'selected' : ''}`;
-        div.innerHTML = `<img class="banana-market-cosmetic-icon" src="${cosmeticIconPath('pipe', pt.id)}" alt="" loading="lazy" decoding="async"><h3>${pt.name}</h3><div class="price">${pt.unlocked ? (pt.id === selectedPipeTheme ? 'Equipped' : 'Owned') : pt.passOnly ? 'Banana Pass' : pt.indexReward ? 'Collection Index Reward' : `${pt.cost} 🍌`}</div><div class="desc">${pt.indexReward ? (pt.unlocked ? 'Animated emerald-and-gold master pipe skin' : 'Complete and claim the Collection Index') : 'New pipe appearance'}</div>`;
+        div.innerHTML = `<img class="banana-market-cosmetic-icon" data-menu-src="${cosmeticIconPath('pipe', pt.id)}" alt="" loading="lazy" decoding="async"><h3>${pt.name}</h3><div class="price">${pt.unlocked ? (pt.id === selectedPipeTheme ? 'Equipped' : 'Owned') : pt.passOnly ? 'Banana Pass' : pt.indexReward ? 'Collection Index Reward' : `${pt.cost} 🍌`}</div><div class="desc">${pt.indexReward ? (pt.unlocked ? 'Animated emerald-and-gold master pipe skin' : 'Complete and claim the Collection Index') : 'New pipe appearance'}</div>`;
         div.onclick = () => {
             if (pt.unlocked) {
                 selectedPipeTheme = pt.id;
@@ -8092,7 +8094,7 @@ function cosmeticIconPath(category, id) {
     titleFXOptions.forEach(fx => {
         const div = document.createElement('div');
         div.className = `shop-option ${fx.unlocked && fx.id === selectedTitleFX ? 'selected' : ''}`;
-        div.innerHTML = `<img class="banana-market-cosmetic-icon" src="${cosmeticIconPath('style', fx.id)}" alt="" loading="lazy" decoding="async"><h3>${fx.name}</h3><div class="price">${fx.unlocked ? 'Owned' : `${fx.cost} 🍌`}</div><div class="desc">Animated effect on your title</div>`;
+        div.innerHTML = `<img class="banana-market-cosmetic-icon" data-menu-src="${cosmeticIconPath('style', fx.id)}" alt="" loading="lazy" decoding="async"><h3>${fx.name}</h3><div class="price">${fx.unlocked ? 'Owned' : `${fx.cost} 🍌`}</div><div class="desc">Animated effect on your title</div>`;
         div.onclick = () => {
             if (fx.unlocked) {
                 selectedTitleFX = fx.id;
@@ -8119,7 +8121,7 @@ function cosmeticIconPath(category, id) {
     profileBackgrounds.forEach(bg => {
         const div = document.createElement('div');
         div.className = `shop-option ${bg.unlocked && bg.id === selectedProfileBg ? 'selected' : ''}`;
-        div.innerHTML = `<img class="banana-market-cosmetic-icon" src="${cosmeticIconPath('theme', bg.id)}" alt="" loading="lazy" decoding="async"><h3>${bg.name}</h3><div class="price">${bg.unlocked ? 'Owned' : bg.passOnly ? 'Banana Pass' : bg.indexReward ? 'Collection Index Reward' : `${bg.cost} 🍌`}</div><div class="desc">${bg.indexReward && !bg.unlocked ? 'Complete and claim the Collection Index to unlock.' : 'Themes your profile and main lobby'}</div>`;
+        div.innerHTML = `<img class="banana-market-cosmetic-icon" data-menu-src="${cosmeticIconPath('theme', bg.id)}" alt="" loading="lazy" decoding="async"><h3>${bg.name}</h3><div class="price">${bg.unlocked ? 'Owned' : bg.passOnly ? 'Banana Pass' : bg.indexReward ? 'Collection Index Reward' : `${bg.cost} 🍌`}</div><div class="desc">${bg.indexReward && !bg.unlocked ? 'Complete and claim the Collection Index to unlock.' : 'Themes your profile and main lobby'}</div>`;
         div.onclick = () => {
             if (bg.unlocked) {
                 selectedProfileBg = bg.id;
@@ -8175,7 +8177,7 @@ function cosmeticIconPath(category, id) {
             card.className = `shop-option ${skin.unlocked && selectedSkin === skin.file ? 'selected' : ''}`;
             card.innerHTML = `
                 <div class="market-skin-preview" style="${bgStyle}">
-                    <img src="${skinPreviewSource(skin)}" data-menu-fallback="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async">
+                    <img data-menu-src="${skinPreviewSource(skin)}" data-menu-fallback="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async">
                 </div>
                 <h3>${skin.name}</h3>
                 ${skinEditStylePicker(skin, 'banana-market')}
@@ -8237,7 +8239,7 @@ function cosmeticIconPath(category, id) {
             card.className = `shop-option ${skin.unlocked && selectedSkin === skin.file ? 'selected' : ''}`;
             card.innerHTML = `
                 <div class="market-skin-preview" style="${bgStyle}">
-                    <img src="${skinPreviewSource(skin)}" data-menu-fallback="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async">
+                    <img data-menu-src="${skinPreviewSource(skin)}" data-menu-fallback="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async">
                 </div>
                 <h3>${skin.name}</h3>
                 <div class="price">${skin.unlocked ? (selectedSkin === skin.file ? 'Equipped' : 'Owned') : `${cost} 🍌`}</div>
@@ -11296,9 +11298,13 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
 
     function createParticles(popup, colour, amount) {
         const fx = getEffectLayer(popup);
-        for (let index = 0; index < amount; index += 1) {
+        const mobileAmount = document.documentElement.classList.contains('mobile-performance')
+            ? Math.max(6, Math.min(28, Math.ceil(amount * .28)))
+            : amount;
+        const fragment = document.createDocumentFragment();
+        for (let index = 0; index < mobileAmount; index += 1) {
             const particle = document.createElement('span');
-            const angle = (Math.PI * 2 * index) / amount + Math.random() * .24;
+            const angle = (Math.PI * 2 * index) / mobileAmount + Math.random() * .24;
             const distance = 90 + Math.random() * 250;
             const size = 4 + Math.random() * 10;
             const type = index % 7 === 0 ? ' particle-star' : index % 3 === 0 ? ' particle-shard' : '';
@@ -11309,8 +11315,9 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
             particle.style.setProperty('--size', size.toFixed(0) + 'px');
             particle.style.setProperty('--delay', (Math.random() * .18).toFixed(2) + 's');
             particle.style.setProperty('--rot', (Math.random() * 180 - 90).toFixed(0) + 'deg');
-            fx.appendChild(particle);
+            fragment.appendChild(particle);
         }
+        fx.appendChild(fragment);
     }
 
     function setCloseState(button, isReady) {
@@ -11364,7 +11371,22 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
         }, 1100);
     }
 
-    function playCinematic(crateType) {
+    const crateArtPreloads = new Map();
+    function preloadCrateArt(config) {
+        const key = `${config.icon}|${config.openIcon}`;
+        if (crateArtPreloads.has(key)) return crateArtPreloads.get(key);
+        const job = Promise.all([config.icon, config.openIcon].map((source) => {
+            const image = new Image();
+            image.fetchPriority = 'high';
+            return window.loadFlappyImageElement
+                ? window.loadFlappyImageElement(image, source)
+                : new Promise((resolve) => { image.onload = () => resolve(true); image.onerror = () => resolve(false); image.src = source; });
+        }));
+        crateArtPreloads.set(key, job);
+        return job;
+    }
+
+    async function playCinematic(crateType) {
         const config = crateConfigs[crateType];
         const popup = document.getElementById('crateOpeningPopup');
         const title = document.getElementById('crateTitle');
@@ -11377,10 +11399,14 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
         popup.style.display = 'flex';
         popup.style.setProperty('--crate-colour', config.colour);
         popup.style.setProperty('--drop-glow', config.colour);
-        popup.dataset.phase = 'sealed';
+        popup.dataset.phase = 'loading';
         title.textContent = config.label;
-        progress.textContent = 'Crate sealed — preparing your reward…';
+        progress.textContent = 'Loading the crate artwork…';
         setCloseState(closeButton, false);
+        await preloadCrateArt(config);
+        if (sequence !== activeSequence) return;
+        popup.dataset.phase = 'sealed';
+        progress.textContent = 'Crate sealed — preparing your reward…';
         visual.innerHTML = crateMarkup(config);
         visual.style.removeProperty('font-size');
         visual.style.removeProperty('transform');
@@ -12657,7 +12683,7 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
             cooldown ? `<span class="td-guide-stat danger">Cooldown ${defenseGuideCycle(cooldown)}</span>` : ''
         ].filter(Boolean).join('');
         return `<article class="td-guide-defender" data-defense-guide-id="${defenseGuideEscape(id)}" data-defense-guide-search="${defenseGuideEscape(searchable)}" data-defense-guide-order="${orderIndex}" data-defense-guide-damage="${Number(config.damage || 0)}" data-defense-guide-rate="${Number(config.rate || 9999)}" data-defense-guide-cost="${Number(config.cost || 0)}">
-            <div class="td-guide-defender-art"><img src="${defenseGuideEscape(defenseTowerImageSource(id))}" alt="${defenseGuideEscape(config.name)}"><span class="td-guide-rank">#${orderIndex + 1}</span></div>
+            <div class="td-guide-defender-art"><img data-menu-src="${defenseGuideEscape(defenseTowerImageSource(id))}" data-menu-fallback="${defenseGuideEscape(config.file)}" alt="${defenseGuideEscape(config.name)}" loading="lazy" decoding="async"><span class="td-guide-rank">#${orderIndex + 1}</span></div>
             <div>
                 <h4>${defenseGuideEscape(config.name)}</h4>
                 <div class="meta">${defenseGuideEscape(config.defenseTier)} defense power · ${defenseGuideEscape(config.rarity)} skin · ${config.cost} 🍌</div>
@@ -12705,7 +12731,7 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
                 const hp = Math.max(1, Math.round(waveOneBaseHp * pest.hp));
                 const heartDamage = defenseGuideHeartDamage(pest);
                 return `<article class="td-guide-invader">
-                    <img src="${defenseGuideEscape(defensePestImageSource(pest.id))}" alt="${defenseGuideEscape(pest.name)}">
+                    <img data-menu-src="${defenseGuideEscape(defensePestImageSource(pest.id))}" data-menu-fallback="${defenseGuideEscape(pest.file)}" alt="${defenseGuideEscape(pest.name)}" loading="lazy" decoding="async">
                     <div><h4>${defenseGuideEscape(pest.name)}</h4><div class="td-guide-stats">
                         <span class="td-guide-stat">Wave 1 HP ${hp}</span>
                         <span class="td-guide-stat">HP ×${pest.hp}</span>
@@ -12842,6 +12868,7 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
         popup.setAttribute('aria-hidden', 'false');
         window.__monkeyDefenseGuideOpen = true;
         selectDefenseGuideTab('overview');
+        window.hydrateFlappyMenuImages?.(popup, popup.querySelector('.td-guide-shell'));
         window.setTimeout(() => popup.querySelector('#tdGuideCloseX')?.focus({ preventScroll: true }), 0);
     };
 
@@ -12878,37 +12905,81 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
         const image = new Image();
         return [pest.id, image];
     }));
+    function defenseAssetUrl(source, retry = 0) {
+        if (!retry || !/^https?:$/.test(location.protocol)) return source;
+        return `${source}${String(source).includes('?') ? '&' : '?'}flappy-defense=mobile-v11-${retry}`;
+    }
+    function loadDefenseAsset(image, source, fallback = '') {
+        if (!image || !source) return Promise.resolve(false);
+        if (image.complete && image.naturalWidth && image.dataset.defenseSource === source) return Promise.resolve(true);
+        if (image._defenseLoadPromise && image.dataset.defenseLoadingSource === source) return image._defenseLoadPromise;
+        const candidates = [defenseAssetUrl(source, 1), source, fallback ? defenseAssetUrl(fallback, 1) : '', fallback]
+            .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
+        image.dataset.defenseLoadingSource = source;
+        image.decoding = 'async';
+        image._defenseLoadPromise = new Promise((resolve) => {
+            let index = 0;
+            const cleanup = () => {
+                image.onload = null;
+                image.onerror = null;
+                delete image._defenseLoadPromise;
+                delete image.dataset.defenseLoadingSource;
+            };
+            const attempt = () => {
+                const candidate = candidates[index++];
+                if (!candidate) { cleanup(); resolve(false); return; }
+                image.onload = () => {
+                    image.dataset.defenseSource = source;
+                    image.decode?.().catch(() => {});
+                    cleanup();
+                    resolve(true);
+                };
+                image.onerror = attempt;
+                image.src = candidate;
+            };
+            attempt();
+        });
+        return image._defenseLoadPromise;
+    }
     function ensureTowerImage(id) {
         const image = towerImages[id];
         const tower = TOWERS[id];
-        if (image && tower && !image.src) {
-            image.decoding = 'async';
-            image.src = defenseTowerImageSource(id);
-            image.decode?.().catch(() => {});
-        }
+        if (image && tower) loadDefenseAsset(image, defenseTowerImageSource(id), tower.file);
         return image;
     }
     function warmDefenseGameplayImages() {
-        PESTS.forEach(pest => {
+        const jobs = PESTS.map(pest => {
             const image = pestImages[pest.id];
-            if (image && !image.src) {
-                image.decoding = 'async';
-                image.src = defensePestImageSource(pest.id);
-                image.decode?.().catch(() => {});
-            }
+            return image ? loadDefenseAsset(image, defensePestImageSource(pest.id), pest.file) : Promise.resolve(false);
         });
-        ensureTowerImage('torn');
-        ensureTowerImage('soldier');
-        ensureTowerImage('attackhelicopter');
-        if (!attackHelicopterBodyImage.src) attackHelicopterBodyImage.src = 'attack-helicopter-defender.webp';
+        ['torn','soldier','attackhelicopter'].forEach((id) => {
+            const image = ensureTowerImage(id);
+            if (image?._defenseLoadPromise) jobs.push(image._defenseLoadPromise);
+        });
+        jobs.push(loadDefenseAsset(attackHelicopterBodyImage, 'attack-helicopter-defender.webp', 'attack-helicopter-defender.png'));
+        return Promise.allSettled(jobs);
+    }
+    let defenseCoreArtPromise = null;
+    function defenseCoreArtReady() {
+        return PESTS.every((pest) => pestImages[pest.id]?.complete && pestImages[pest.id]?.naturalWidth)
+            && ['soldier','attackhelicopter'].every((id) => towerImages[id]?.complete && towerImages[id]?.naturalWidth)
+            && attackHelicopterBodyImage.complete && attackHelicopterBodyImage.naturalWidth;
+    }
+    function ensureDefenseCoreArt() {
+        if (defenseCoreArtReady()) return Promise.resolve(true);
+        if (!defenseCoreArtPromise) {
+            defenseCoreArtPromise = warmDefenseGameplayImages().then(() => defenseCoreArtReady()).finally(() => {
+                defenseCoreArtPromise = null;
+            });
+        }
+        return defenseCoreArtPromise;
     }
     const birthdayPresentImage = new Image();
     birthdayPresentImage.src = 'Birthday Bash Present.png';
     const attackHelicopterBodyImage = new Image();
     attackHelicopterBodyImage.decoding = 'async';
     attackHelicopterBodyImage.fetchPriority = 'high';
-    attackHelicopterBodyImage.src = 'attack-helicopter-defender.webp';
-    attackHelicopterBodyImage.decode?.().catch(() => {});
+    loadDefenseAsset(attackHelicopterBodyImage, 'attack-helicopter-defender.webp', 'attack-helicopter-defender.png');
     const ATTACK_HELICOPTER_VISUAL_SCALE = .76;
     const ATTACK_HELICOPTER_MUZZLE_X = 108;
     const ATTACK_HELICOPTER_MUZZLE_Y = 43;
@@ -13541,6 +13612,7 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
             button.title = tower.hint;
             const image = document.createElement('img');
             image.dataset.menuSrc = defenseTowerImageSource(id);
+            image.dataset.menuFallback = tower.file;
             image.loading = 'lazy';
             image.decoding = 'async';
             image.alt = '';
@@ -13672,7 +13744,9 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
         started = false;
         td.active = true;
         screen.style.display = 'block';
-        warmDefenseGameplayImages();
+        ensureDefenseCoreArt().then((ready) => {
+            if (ready && td.active) drawDefense();
+        });
         const towerRow = document.getElementById('tdTowerRow');
         window.hydrateFlappyMenuImages?.(towerRow, towerRow);
         setActiveMap(td.mapId);
@@ -13857,12 +13931,24 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
         return Object.assign(enemy, pos);
     }
 
-    function beginWave() {
+    async function beginWave() {
         if (td.gameOver) {
             resetDefense();
             return;
         }
         if (td.waveActive) return;
+        if (!defenseCoreArtReady()) {
+            tdEls.waveButton.disabled = true;
+            tdEls.waveButton.textContent = 'Loading defender art…';
+            setStatus('Loading the correct Defender and Invader art before the wave starts…');
+            const ready = await ensureDefenseCoreArt();
+            tdEls.waveButton.disabled = false;
+            if (!ready) {
+                tdEls.waveButton.textContent = `Retry Start Wave ${td.wave + 1}`;
+                setStatus('Some Defender art could not load. Check the connection and tap Start Wave again to retry.', true);
+                return;
+            }
+        }
         if (td.wave === 0) window.reportFlappyGameStarted?.('defense');
         td.wave += 1;
         if (isProgressionRun()) checkTowerDefenseRewards();
@@ -14018,7 +14104,7 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
     }
 
     function chooseTower(type) {
-        ensureTowerImage(type);
+        const defenderImage = ensureTowerImage(type);
         const mission = currentMission();
         if (td.runMode === 'campaign' && (!mission || !mission.allowed.includes(type))) {
             setStatus('That defender is locked for this campaign mission.', true);
@@ -14033,9 +14119,21 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
         }
         td.selectedType = type;
         td.selectedTower = null;
-        td.placing = true;
+        const artReady = Boolean(defenderImage?.complete && defenderImage?.naturalWidth);
+        td.placing = artReady;
         refreshTowerButtons();
-        setStatus(`${TOWERS[type].name} selected. Hover over the map: green is buildable, red is blocked. ${TOWERS[type].hint}`);
+        if (artReady) {
+            setStatus(`${TOWERS[type].name} selected. Hover over the map: green is buildable, red is blocked. ${TOWERS[type].hint}`);
+        } else {
+            setStatus(`Loading the correct ${TOWERS[type].name} art…`);
+            defenderImage?._defenseLoadPromise?.then((loaded) => {
+                if (td.selectedType !== type || td.selectedTower) return;
+                td.placing = Boolean(loaded);
+                setStatus(loaded
+                    ? `${TOWERS[type].name} is ready. Tap a green build location.`
+                    : `${TOWERS[type].name} art could not load. Tap its card to retry.`, !loaded);
+            });
+        }
         updateTDPanel();
     }
 
@@ -16090,7 +16188,9 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
     }
 
     function drawAttackHelicopter(tower, stats, selected) {
-        if (!attackHelicopterBodyImage.src) attackHelicopterBodyImage.src = 'attack-helicopter-defender.webp';
+        if (!attackHelicopterBodyImage.complete || !attackHelicopterBodyImage.naturalWidth) {
+            loadDefenseAsset(attackHelicopterBodyImage, 'attack-helicopter-defender.webp', 'attack-helicopter-defender.png');
+        }
         if (attackHelicopterBodyImage.complete && attackHelicopterBodyImage.naturalWidth) {
             drawAttackHelicopterSprite(tower,stats,selected);
             return;
@@ -17986,7 +18086,17 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
         tdCtx.restore();
     }
 
+    const tdMobilePerformance = matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+    let tdLastPanelPaint = 0;
+    let tdPanelPaintTimer = 0;
     function updateTDPanel() {
+        const panelNow = performance.now();
+        if (tdMobilePerformance && panelNow - tdLastPanelPaint < 90) {
+            clearTimeout(tdPanelPaintTimer);
+            tdPanelPaintTimer = setTimeout(updateTDPanel, Math.max(0, 92 - (panelNow - tdLastPanelPaint)));
+            return;
+        }
+        tdLastPanelPaint = panelNow;
         const selectedKey = td.selectedTower
             ? `${td.selectedTower.type}:${td.selectedTower.level}:${td.selectedTower.path}:${td.selectedTower.spent}:${Math.floor(td.selectedTower.damageDone)}:${td.selectedTower.kills}:${td.selectedTower.attacks}:${td.selectedTower.abilities}:${td.selectedTower.partyMeter || 0}:${td.selectedTower.rhythmStacks || 0}:${Math.ceil(Number(td.selectedTower.missileCooldown || 0) / 60)}:${Math.ceil(Number(td.selectedTower.gunshipCooldown || 0) / 60)}:${Math.ceil(Number(td.selectedTower.airStrikeCooldown || 0) / 60)}:${Math.ceil(Number(td.selectedTower.ultimateCooldown || 0) / 60)}`
             : `build:${td.selectedType}`;
@@ -18059,6 +18169,7 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
         updatePowerButtons();
     }
 
+    let tdLastMobileDraw = 0;
     function tdLoop(timestamp) {
         if (document.hidden || window.flappyAppSuspended) {
             td.lastTime = timestamp;
@@ -18072,7 +18183,10 @@ window.addEventListener('pageshow', setupSkinSearchAndFilter);
         td.lastTime = timestamp;
         if (td.active) {
             updateDefense((elapsed / 16.67) * td.speedMultiplier);
-            drawDefense();
+            if (!tdMobilePerformance || !tdLastMobileDraw || timestamp - tdLastMobileDraw >= 30) {
+                drawDefense();
+                tdLastMobileDraw = timestamp;
+            }
         }
         requestAnimationFrame(tdLoop);
     }
@@ -18351,60 +18465,146 @@ function inventoryEsc(value) {
     return String(value ?? '').replace(/[&<>'"]/g, character => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' })[character]);
 }
 
+window.flappyAssetUrl = function(source, retry = 0) {
+    const value = String(source || '');
+    if (!retry || !/^https?:$/.test(location.protocol) || /^(?:data|blob):/i.test(value)) return value;
+    const separator = value.includes('?') ? '&' : '?';
+    return `${value}${separator}flappy-asset=mobile-v11-${retry}`;
+};
+
+window.loadFlappyImageElement = function(image, source, fallback = '') {
+    if (!image || !source) return Promise.resolve(false);
+    if (image.complete && image.naturalWidth && image.dataset.flappyLoadedSource === source) return Promise.resolve(true);
+    if (image._flappyLoadPromise && image.dataset.flappyLoadingSource === source) return image._flappyLoadPromise;
+    const candidates = [
+        window.flappyAssetUrl(source, 1), source,
+        fallback ? window.flappyAssetUrl(fallback, 1) : '', fallback
+    ].filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
+    image.dataset.flappyLoadingSource = source;
+    image.classList.remove('flappy-image-error');
+    image._flappyLoadPromise = new Promise((resolve) => {
+        let candidateIndex = 0;
+        const cleanup = () => {
+            image.onload = null;
+            image.onerror = null;
+            delete image._flappyLoadPromise;
+            delete image.dataset.flappyLoadingSource;
+        };
+        const attempt = () => {
+            const candidate = candidates[candidateIndex++];
+            if (!candidate) {
+                cleanup();
+                image.classList.add('flappy-image-error');
+                resolve(false);
+                return;
+            }
+            image.onload = () => {
+                image.dataset.flappyLoadedSource = source;
+                image.classList.remove('flappy-image-error');
+                image.decode?.().catch(() => {});
+                cleanup();
+                resolve(true);
+            };
+            image.onerror = attempt;
+            image.src = candidate;
+        };
+        attempt();
+    });
+    return image._flappyLoadPromise;
+};
+
+function retryFailedFlappyImage(image) {
+    if (!(image instanceof HTMLImageElement)
+        || image._flappyLoadPromise
+        || image.dataset.menuSrc
+        || image.dataset.flappyDirectRetry === 'true') return;
+    const source = image.getAttribute('src') || '';
+    if (!source || /^(?:data|blob):/i.test(source)) return;
+    image.dataset.flappyDirectRetry = 'true';
+    window.setTimeout(() => {
+        if (!image.isConnected || image.naturalWidth) return;
+        image.src = window.flappyAssetUrl(source, 2);
+    }, 0);
+}
+
+// Static and dynamically-created UI art gets one cache-busted recovery attempt.
+// Menu art uses the bounded loader below so this never creates another request burst.
+document.addEventListener('error', event => retryFailedFlappyImage(event.target), true);
+window.addEventListener('load', () => {
+    document.querySelectorAll('img[src]').forEach(image => {
+        if (image.complete && !image.naturalWidth) retryFailedFlappyImage(image);
+    });
+}, { once:true });
+
+const flappyMenuImageQueue = window.flappyMenuImageQueue || (window.flappyMenuImageQueue = {
+    pending: [],
+    active: 0,
+    maximum: matchMedia('(max-width: 760px), (pointer: coarse)').matches ? 4 : 8
+});
+
+function pumpFlappyMenuImageQueue() {
+    while (flappyMenuImageQueue.active < flappyMenuImageQueue.maximum && flappyMenuImageQueue.pending.length) {
+        const task = flappyMenuImageQueue.pending.shift();
+        const image = task.image;
+        if (!image?.isConnected || !image.dataset.menuSrc) {
+            if (image) delete image.dataset.menuQueued;
+            continue;
+        }
+        flappyMenuImageQueue.active += 1;
+        image.loading = 'eager';
+        const source = image.dataset.menuSrc;
+        const fallback = image.dataset.menuFallback || '';
+        window.loadFlappyImageElement(image, source, fallback).then((loaded) => {
+            if (loaded) {
+                image.removeAttribute('data-menu-src');
+                image.removeAttribute('data-menu-fallback');
+            }
+            delete image.dataset.menuQueued;
+        }).finally(() => {
+            flappyMenuImageQueue.active = Math.max(0, flappyMenuImageQueue.active - 1);
+            pumpFlappyMenuImageQueue();
+        });
+    }
+}
+
+function queueFlappyMenuImage(image, priority = false) {
+    if (!image?.dataset?.menuSrc || image.dataset.menuQueued === 'true') return;
+    image.dataset.menuQueued = 'true';
+    const task = { image };
+    if (priority) flappyMenuImageQueue.pending.unshift(task);
+    else flappyMenuImageQueue.pending.push(task);
+    pumpFlappyMenuImageQueue();
+}
+
 window.hydrateFlappyMenuImages = function(container, scrollRoot = null) {
     if (!container) return;
     container._flappyImageObserver?.disconnect();
     if (container._flappyImageScrollRoot && container._flappyImageScrollHandler) {
         container._flappyImageScrollRoot.removeEventListener('scroll', container._flappyImageScrollHandler);
     }
-    const load = image => {
-        const source = image?.dataset?.menuSrc;
-        if (!source) return;
-        image.loading = 'eager';
-        const recover = () => {
-            const fallback = image.dataset.menuFallback;
-            if (fallback) {
-                image.removeAttribute('data-menu-fallback');
-                image.src = fallback;
-                return;
-            }
-            if (image.dataset.retried === 'true') return;
-            image.dataset.retried = 'true';
-            requestAnimationFrame(() => {
-                image.src = '';
-                image.src = source;
-            });
-        };
-        // Cached failures can fire immediately, so attach recovery first.
-        image.addEventListener('error', recover);
-        image.src = source;
-        image.removeAttribute('data-menu-src');
-        image.decode?.().catch(() => {});
-    };
     const images = [...container.querySelectorAll('img[data-menu-src]')];
     const mobileMenu = matchMedia('(max-width: 760px), (pointer: coarse)').matches;
-    /* Mobile catalogs are paged or category-scoped. Fully hydrate a modest
-       active page so fixed overlays/content-visibility cannot prevent an
-       IntersectionObserver callback. Defense cards use tiny WebP thumbnails. */
-    if (mobileMenu && images.length <= 56) {
-        images.forEach(load);
+    // Queue every bounded mobile page, but allow only four network/decode jobs
+    // at once. The old 48-request burst starved gameplay and caused otherwise
+    // valid skin, defender, and invader art to fail intermittently.
+    if (mobileMenu && images.length <= 64) {
+        images.slice(0, 6).reverse().forEach((image) => queueFlappyMenuImage(image, true));
+        images.slice(6).forEach((image) => queueFlappyMenuImage(image));
         return;
     }
-    const initialCount = mobileMenu ? 12 : 18;
-    images.slice(0, initialCount).forEach(load);
+    const initialCount = mobileMenu ? 8 : 18;
+    images.slice(0, initialCount).forEach((image) => queueFlappyMenuImage(image, true));
     const deferredImages = images.slice(initialCount);
     const root = scrollRoot && scrollRoot !== document.body ? scrollRoot : window;
     let scrollFrame = 0;
     const loadNearViewport = () => {
         cancelAnimationFrame(scrollFrame);
         scrollFrame = requestAnimationFrame(() => {
-            const rootRect = root === window
-                ? { top:0, bottom:innerHeight }
-                : root.getBoundingClientRect();
+            const rootRect = root === window ? { top:0, bottom:innerHeight } : root.getBoundingClientRect();
             deferredImages.forEach(image => {
                 if (!image.dataset.menuSrc) return;
                 const rect = image.getBoundingClientRect();
-                if (rect.bottom >= rootRect.top - 640 && rect.top <= rootRect.bottom + 640) load(image);
+                if (rect.bottom >= rootRect.top - 640 && rect.top <= rootRect.bottom + 640) queueFlappyMenuImage(image, true);
             });
         });
     };
@@ -18413,14 +18613,14 @@ window.hydrateFlappyMenuImages = function(container, scrollRoot = null) {
     container._flappyImageScrollHandler = loadNearViewport;
     loadNearViewport();
     if (!('IntersectionObserver' in window)) {
-        deferredImages.forEach(load);
+        deferredImages.forEach((image) => queueFlappyMenuImage(image));
         return;
     }
     const observer = new IntersectionObserver(entries => {
         entries.forEach(entry => {
             if (!entry.isIntersecting) return;
             observer.unobserve(entry.target);
-            load(entry.target);
+            queueFlappyMenuImage(entry.target, true);
         });
     }, { root:scrollRoot, rootMargin:'480px 100px', threshold:.001 });
     container._flappyImageObserver = observer;
@@ -19669,11 +19869,11 @@ applyProfileTheme();
     window.addEventListener('keydown', listenForJade, true);
 })();
 </script>
-<script src="multiplayer-client-config.js?v=10"></script>
-<script src="monkey-world-renderer.js?v=10"></script>
-<script src="multiplayer.js?v=10"></script>
-<script src="pwa.js?v=10"></script>
-<script src="mobile-ui.js?v=10"></script>
+<script src="multiplayer-client-config.js?v=11"></script>
+<script src="monkey-world-renderer.js?v=11"></script>
+<script src="multiplayer.js?v=11"></script>
+<script src="pwa.js?v=11"></script>
+<script src="mobile-ui.js?v=11"></script>
 <style id="controller-accessibility-upgrade">
     :root { --shake-scale: 1; }
     #settingsPopup .settings-box { width:min(900px,100%); max-height:90vh; overflow:auto; text-align:left; }
