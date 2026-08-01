@@ -650,9 +650,10 @@
     function fitLobbyNavigation() {
         if (!mainButtons) return;
         const buttons = [...mainButtons.querySelectorAll(':scope > button')];
-        mainButtons.style.setProperty('width', 'min(1360px, calc(100vw - 32px))', 'important');
+        const compactMobileViewport = window.innerWidth <= 760 || (window.innerHeight <= 520 && window.innerWidth > window.innerHeight);
+        mainButtons.style.setProperty('width', compactMobileViewport ? '100%' : 'min(1360px, calc(100vw - 32px))', 'important');
         mainButtons.style.setProperty('max-width', 'none', 'important');
-        if (window.innerWidth >= 900) {
+        if (window.innerWidth >= 900 && !compactMobileViewport) {
             mainButtons.style.setProperty('flex-wrap', 'wrap', 'important');
             mainButtons.style.setProperty('justify-content', 'center', 'important');
             mainButtons.style.setProperty('gap', '8px', 'important');
