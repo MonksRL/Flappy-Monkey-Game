@@ -384,15 +384,19 @@ button, input, select, textarea { font:inherit; }
         align-items:stretch!important;
         overscroll-behavior:contain;
         scroll-padding-top:82px;
+        animation:none!important;
+        transform:none!important;
     }
-    #skinMenu > h2, #titlesMenu > h2, #modeMenu > h2, #shopMenu > h2 {
+    html body #skinMenu > h2, html body #titlesMenu > h2,
+    html body #modeMenu > h2, html body #shopMenu > h2 {
         width:100%;
         box-sizing:border-box;
-        margin:58px 0 14px!important;
+        margin:70px 0 14px!important;
         padding:0 5px;
-        font-size:clamp(27px,8vw,34px)!important;
+        font-size:clamp(22px,6.8vw,29px)!important;
         line-height:1.05;
         text-align:left;
+        overflow-wrap:anywhere;
     }
     #closeSkinMenu, #closeTitlesMenu, #closeModeMenu, #closeShopMenu {
         position:fixed!important;
@@ -484,6 +488,10 @@ button, input, select, textarea { font:inherit; }
     }
     .skin-menu-pager button { min-width:0!important; min-height:44px!important; padding:7px!important; font-size:11px!important; }
     .skin-menu-pager span { color:#d8edda; font-size:9px; font-weight:900; text-align:center; }
+    #skinMenu:has(.skin-menu-toolbar :focus) .skin-menu-pager {
+        visibility:hidden;
+        pointer-events:none;
+    }
 
     /* Every long menu keeps its exit action within thumb reach. */
     #closeProfileMenu, #closeBananaPass, #closeInventory, #closeSettingsBtn,
@@ -561,7 +569,7 @@ button, input, select, textarea { font:inherit; }
         width:100%!important;
         min-width:0!important;
         max-width:none!important;
-        min-height:210px!important;
+        min-height:172px!important;
         margin:0!important;
         padding:9px!important;
         box-sizing:border-box;
@@ -573,11 +581,90 @@ button, input, select, textarea { font:inherit; }
     #shopMenu .shop-option h3 { font-size:14px!important; overflow-wrap:anywhere; }
     #shopMenu .shop-option p, #shopMenu .shop-option .desc { font-size:9px!important; line-height:1.3!important; }
     #shopMenu .shop-option .price, #shopMenu .shop-option .owned { font-size:12px!important; }
+    #shopMenu #monkeySkinsGrid[style*="display: flex"],
+    #shopMenu #monkeySkinsGrid[style*="display:flex"] {
+        display:block!important;
+        width:100%!important;
+        padding:8px 0 80px!important;
+        overflow-x:hidden!important;
+    }
+    #shopMenu #monkeySkinsGrid .monkey-skin-section-header {
+        display:block!important;
+        width:100%!important;
+        margin:12px 0 8px!important;
+        padding:9px 12px!important;
+        box-sizing:border-box;
+        font-size:15px!important;
+        text-align:left;
+    }
+    #shopMenu #monkeySkinsGrid .monkey-skin-market-section {
+        display:grid!important;
+        grid-template-columns:repeat(2,minmax(0,1fr))!important;
+        width:100%!important;
+        max-width:none!important;
+        margin:0 0 12px!important;
+        padding:0!important;
+        gap:9px!important;
+        box-sizing:border-box;
+    }
+    #shopMenu #monkeySkinsGrid .shop-option { min-height:215px!important; }
+    #shopMenu #monkeySkinsGrid .market-skin-preview {
+        height:104px!important;
+        background-image:none!important;
+        background:radial-gradient(circle at 50% 40%,rgba(255,239,137,.18),rgba(9,39,26,.94) 73%)!important;
+    }
+    #shopMenu #monkeySkinsGrid .market-skin-preview img { width:82px!important; height:82px!important; }
     #shopMenu #cratesGrid[style*="display: flex"],
-    #shopMenu #cratesGrid[style*="display:flex"] { grid-template-columns:repeat(2,minmax(0,1fr))!important; width:100%!important; }
+    #shopMenu #cratesGrid[style*="display:flex"] {
+        grid-template-columns:1fr!important;
+        width:100%!important;
+        max-width:440px!important;
+        margin-inline:auto!important;
+    }
+    #shopMenu #cratesGrid .shop-option {
+        min-height:0!important;
+        border-width:3px!important;
+        border-radius:17px!important;
+    }
+    #shopMenu #cratesGrid .shop-option > div {
+        display:grid!important;
+        grid-template-columns:78px minmax(0,1fr);
+        align-items:center;
+        gap:5px 10px;
+        padding:10px!important;
+        text-align:left!important;
+    }
+    #shopMenu #cratesGrid .shop-option > div > img {
+        grid-column:1;
+        grid-row:1 / span 3;
+        width:72px!important;
+        height:72px!important;
+        margin:0!important;
+    }
+    #shopMenu #cratesGrid .shop-option > div > h3 {
+        grid-column:2;
+        margin:0!important;
+        font-size:15px!important;
+        text-align:left!important;
+    }
+    #shopMenu #cratesGrid .shop-option > div > div:nth-of-type(1) {
+        grid-column:2;
+        margin:0!important;
+        font-size:22px!important;
+        text-align:left!important;
+    }
+    #shopMenu #cratesGrid .shop-option > div > p { grid-column:2; margin:0!important; }
+    #shopMenu #cratesGrid .shop-option > div > div:nth-of-type(n+2) {
+        grid-column:1 / -1;
+        width:100%;
+        box-sizing:border-box;
+    }
+    #shopMenu #cratesGrid .shop-option button { min-height:44px!important; padding:8px 14px!important; font-size:13px!important; }
 
     #towerDefenseScreen .td-shell,
     #onlineDefenseScreen .od-game { padding-bottom:126px!important; }
+    #towerDefenseScreen .td-main > #tdCanvas { order:0!important; }
+    #towerDefenseScreen .td-main > .td-side { order:1!important; }
     #towerDefenseScreen .td-tower-panel,
     #onlineDefenseScreen .od-tower-panel {
         position:static!important;
@@ -593,6 +680,24 @@ button, input, select, textarea { font:inherit; }
         overflow-y:auto!important;
         overscroll-behavior:contain;
         padding-bottom:8px!important;
+    }
+    #towerDefenseScreen .td-tower {
+        min-height:82px!important;
+        grid-template-columns:42px minmax(0,1fr)!important;
+        gap:6px!important;
+        padding:6px!important;
+        align-items:center!important;
+    }
+    #towerDefenseScreen .td-tower img { width:42px!important; height:42px!important; object-fit:contain!important; }
+    #towerDefenseScreen .td-tower-copy strong { font-size:10px!important; line-height:1.15!important; }
+    #towerDefenseScreen .td-tower-copy small {
+        display:-webkit-box!important;
+        margin-top:3px!important;
+        overflow:hidden!important;
+        -webkit-box-orient:vertical;
+        -webkit-line-clamp:3;
+        font-size:8px!important;
+        line-height:1.2!important;
     }
     #towerDefenseScreen .td-bottom,
     #onlineDefenseScreen .od-bottom {
@@ -663,8 +768,8 @@ button, input, select, textarea { font:inherit; }
 }
 
 @media (max-width:390px) {
-    #skinMenu .skin-menu-toolbar { grid-template-columns:1fr; padding-right:82px; }
-    #rarityFilter { grid-column:1; }
+    #skinMenu .skin-menu-toolbar { grid-template-columns:minmax(0,1fr) 112px; padding-right:0; }
+    #rarityFilter { grid-column:auto; }
     #skinGrid .skin-option > div:first-child { height:96px!important; }
     #skinGrid .skin-option > div:first-child img { width:72px!important; height:72px!important; }
     body .button-row > button { font-size:8px!important; }

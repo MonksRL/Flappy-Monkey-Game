@@ -2649,7 +2649,7 @@ function skinEditStylePicker(skin, context = 'menu') {
         const shortName = style.id === 'default' ? 'Default' : style.id === 'tattoos' ? 'Tattoos' : style.name.replace(`${skin.name} `, '');
         return `
         <button type="button" class="skin-edit-style-option ${active ? 'active' : ''}" data-skin-edit-style="${style.id}">
-            <img src="${style.file}" alt="${style.name} preview"><span><strong>${shortName}</strong><small>${active ? 'Equipped' : 'Choose style'}</small></span>
+            <img src="${skinPreviewSource(style.file)}" data-menu-fallback="${style.file}" alt="${style.name} preview"><span><strong>${shortName}</strong><small>${active ? 'Equipped' : 'Choose style'}</small></span>
         </button>`;
     }).join('');
     return `<div class="skin-edit-style-picker ${context}" aria-label="${skin.name} edit styles">${options}</div>`;
@@ -6768,12 +6768,13 @@ if (selectedTitle && selectedTitle !== 'None') {
         // but gravity, jumps, pipes, collisions, and frame-based effects still
         // advance at the original 60 updates per second.
         const GAME_UPDATE_MS = 1000 / 60;
-        // 250 ms is the largest elapsed slice accepted below, so 15 substeps
-        // can fully preserve one real quarter-second even on a very slow frame.
-        // A smaller cap discards gravity/pipe time and visibly creates slow-mo.
-        const MAX_GAME_UPDATES_PER_FRAME = 15;
+        // Preserve up to half a second on severely overloaded phones. The
+        // simulation work is cheap; throwing this time away is what makes
+        // gravity and pipes look like slow motion on low-frame-rate devices.
+        const MAX_GAME_UPDATES_PER_FRAME = 30;
         const MOBILE_REAL_TIME_GAMEPLAY = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent)
-            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+            || matchMedia('(pointer: coarse)').matches;
         let previousGameLoopTime = 0;
         let gameUpdateAccumulator = 0;
         let lastIdleGameDraw = 0;
@@ -6785,7 +6786,7 @@ if (selectedTitle && selectedTitle !== 'None') {
                 return;
             }
             if (!previousGameLoopTime) previousGameLoopTime = timestamp;
-            const elapsed = Math.min(250, Math.max(0, timestamp - previousGameLoopTime));
+            const elapsed = Math.min(500, Math.max(0, timestamp - previousGameLoopTime));
             previousGameLoopTime = timestamp;
             if (!MOBILE_REAL_TIME_GAMEPLAY) {
                 // Preserve the established PC feel exactly: the desktop build
@@ -6935,6 +6936,14 @@ function defenseRewardSkinProgressMarkup(skin, heading, modeNote) {
 let skinMenuPage = 1;
 const MOBILE_SKINS_PER_PAGE = 24;
 
+function skinPreviewSource(skinOrFile, animated = false) {
+    const skin = typeof skinOrFile === 'object' ? skinOrFile : null;
+    const file = String(skin?.file || skinOrFile || '');
+    if (!file || animated || skin?.animated || /^(?:data:|blob:|https?:)/i.test(file)) return file;
+    const filename = file.split('/').pop();
+    return `skin-thumbnails/${filename.replace(/\.[^.]+$/, '')}.webp`;
+}
+
 function refreshSkinMenu(options = {}) {
     const grid = document.getElementById('skinGrid');
     const menu = document.getElementById('skinMenu');
@@ -6954,7 +6963,8 @@ function refreshSkinMenu(options = {}) {
     const rarityFilter = String(document.getElementById('rarityFilter')?.value || 'all').toLowerCase();
     const filteredSkins = sortedSkins.filter(skin => {
         const matchesSearch = !searchTerm || String(skin.name || '').toLowerCase().includes(searchTerm);
-        const matchesRarity = rarityFilter === 'all' || String(skin.rarity || 'common').toLowerCase() === rarityFilter;
+        const matchesRarity = rarityFilter === 'all'
+            || (rarityFilter === 'animated' ? Boolean(skin.animated) : String(skin.rarity || 'common').toLowerCase() === rarityFilter);
         return matchesSearch && matchesRarity;
     });
     const mobileMenu = matchMedia('(max-width: 760px), (max-height: 520px) and (orientation: landscape)').matches;
@@ -6994,10 +7004,10 @@ function refreshSkinMenu(options = {}) {
                         ${previewStyle}">
                 
                 ${skin.animated ? 
-                    `<img data-menu-src="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async"
+                    `<img data-menu-src="${skinPreviewSource(skin)}" data-menu-fallback="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async"
                           style="position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); width:130px; height:130px; image-rendering:pixelated; z-index:2;">` 
                     : 
-                    `<img data-menu-src="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async"
+                    `<img data-menu-src="${skinPreviewSource(skin)}" data-menu-fallback="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async"
                           style="position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); width:120px; height:120px; image-rendering:pixelated; z-index:2;">`
                 }
                 ${skin.mobileOnly ? '<span style="position:absolute;left:9px;top:9px;z-index:4;padding:5px 9px;border:2px solid #87fff2;border-radius:999px;background:rgba(4,35,46,.94);color:#b6fff8;font-size:10px;font-weight:1000;letter-spacing:.08em;box-shadow:0 4px 12px rgba(0,0,0,.45);">MOBILE ONLY</span>' : ''}
@@ -7469,7 +7479,7 @@ else {
             if (!button || button.disabled) return;
             skinMenuPage += button.dataset.skinPage === 'next' ? 1 : -1;
             refreshSkinMenu({ force:true });
-            menu.scrollTo({ top:0, behavior:'smooth' });
+            menu.scrollTo({ top:0, behavior:'auto' });
         });
         grid.appendChild(pager);
     }
@@ -8165,7 +8175,7 @@ function cosmeticIconPath(category, id) {
             card.className = `shop-option ${skin.unlocked && selectedSkin === skin.file ? 'selected' : ''}`;
             card.innerHTML = `
                 <div class="market-skin-preview" style="${bgStyle}">
-                    <img src="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async">
+                    <img src="${skinPreviewSource(skin)}" data-menu-fallback="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async">
                 </div>
                 <h3>${skin.name}</h3>
                 ${skinEditStylePicker(skin, 'banana-market')}
@@ -8227,7 +8237,7 @@ function cosmeticIconPath(category, id) {
             card.className = `shop-option ${skin.unlocked && selectedSkin === skin.file ? 'selected' : ''}`;
             card.innerHTML = `
                 <div class="market-skin-preview" style="${bgStyle}">
-                    <img src="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async">
+                    <img src="${skinPreviewSource(skin)}" data-menu-fallback="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async">
                 </div>
                 <h3>${skin.name}</h3>
                 <div class="price">${skin.unlocked ? (selectedSkin === skin.file ? 'Equipped' : 'Owned') : `${cost} 🍌`}</div>
@@ -8298,6 +8308,7 @@ function cosmeticIconPath(category, id) {
             if (grids[tab.dataset.tab]) {
                 grids[tab.dataset.tab].style.display = 'flex';
                 window.hydrateFlappyMenuImages?.(grids[tab.dataset.tab], document.getElementById('shopMenu'));
+                document.getElementById('shopMenu')?.scrollTo({ top:0, behavior:'auto' });
             }
         });
     });
@@ -12567,6 +12578,10 @@ window.addEventListener('load', () => {
         { id: 'frankenstein', name: 'Frankenstein', file: 'Frankenstein Monkey.png', hp: 2.75, speed: .78, reward: 2.15, kind: 'armored', color: '#89c875' },
         { id: 'ghost', name: 'Ghost', file: 'Ghost Monkey.png', hp: .7, speed: 1.7, reward: .95, kind: 'runner', color: '#d7d6ff' }
     ];
+    const defenseTowerImageSource = (id) => `defense-art/towers/${id}.webp`;
+    const defensePestImageSource = (id) => `defense-art/pests/${id}.webp`;
+    window.FlappyMonkeyDefenseCatalog.towerImageSource = defenseTowerImageSource;
+    window.FlappyMonkeyDefenseCatalog.pestImageSource = defensePestImageSource;
     window.FlappyMonkeyDefenseCatalog.pests = PESTS;
 
     const defenseGuideEscape = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -12618,7 +12633,7 @@ window.addEventListener('load', () => {
             cooldown ? `<span class="td-guide-stat danger">Cooldown ${defenseGuideCycle(cooldown)}</span>` : ''
         ].filter(Boolean).join('');
         return `<article class="td-guide-defender" data-defense-guide-id="${defenseGuideEscape(id)}" data-defense-guide-search="${defenseGuideEscape(searchable)}" data-defense-guide-order="${orderIndex}" data-defense-guide-damage="${Number(config.damage || 0)}" data-defense-guide-rate="${Number(config.rate || 9999)}" data-defense-guide-cost="${Number(config.cost || 0)}">
-            <div class="td-guide-defender-art"><img src="${defenseGuideEscape(config.file)}" alt="${defenseGuideEscape(config.name)}"><span class="td-guide-rank">#${orderIndex + 1}</span></div>
+            <div class="td-guide-defender-art"><img src="${defenseGuideEscape(defenseTowerImageSource(id))}" alt="${defenseGuideEscape(config.name)}"><span class="td-guide-rank">#${orderIndex + 1}</span></div>
             <div>
                 <h4>${defenseGuideEscape(config.name)}</h4>
                 <div class="meta">${defenseGuideEscape(config.defenseTier)} defense power · ${defenseGuideEscape(config.rarity)} skin · ${config.cost} 🍌</div>
@@ -12666,7 +12681,7 @@ window.addEventListener('load', () => {
                 const hp = Math.max(1, Math.round(waveOneBaseHp * pest.hp));
                 const heartDamage = defenseGuideHeartDamage(pest);
                 return `<article class="td-guide-invader">
-                    <img src="${defenseGuideEscape(pest.file)}" alt="${defenseGuideEscape(pest.name)}">
+                    <img src="${defenseGuideEscape(defensePestImageSource(pest.id))}" alt="${defenseGuideEscape(pest.name)}">
                     <div><h4>${defenseGuideEscape(pest.name)}</h4><div class="td-guide-stats">
                         <span class="td-guide-stat">Wave 1 HP ${hp}</span>
                         <span class="td-guide-stat">HP ×${pest.hp}</span>
@@ -12842,13 +12857,21 @@ window.addEventListener('load', () => {
     function ensureTowerImage(id) {
         const image = towerImages[id];
         const tower = TOWERS[id];
-        if (image && tower && !image.src) image.src = id === 'attackhelicopter' ? 'Attack-Helicopter Monkey.webp' : tower.file;
+        if (image && tower && !image.src) {
+            image.decoding = 'async';
+            image.src = defenseTowerImageSource(id);
+            image.decode?.().catch(() => {});
+        }
         return image;
     }
     function warmDefenseGameplayImages() {
         PESTS.forEach(pest => {
             const image = pestImages[pest.id];
-            if (image && !image.src) image.src = pest.file;
+            if (image && !image.src) {
+                image.decoding = 'async';
+                image.src = defensePestImageSource(pest.id);
+                image.decode?.().catch(() => {});
+            }
         });
         ensureTowerImage('torn');
         ensureTowerImage('soldier');
@@ -12859,6 +12882,9 @@ window.addEventListener('load', () => {
     birthdayPresentImage.src = 'Birthday Bash Present.png';
     const attackHelicopterBodyImage = new Image();
     attackHelicopterBodyImage.decoding = 'async';
+    attackHelicopterBodyImage.fetchPriority = 'high';
+    attackHelicopterBodyImage.src = 'attack-helicopter-defender.webp';
+    attackHelicopterBodyImage.decode?.().catch(() => {});
     const ATTACK_HELICOPTER_VISUAL_SCALE = .76;
     const ATTACK_HELICOPTER_MUZZLE_X = 108;
     const ATTACK_HELICOPTER_MUZZLE_Y = 43;
@@ -13399,6 +13425,7 @@ window.addEventListener('load', () => {
     function showMapSelection() {
         screen.classList.add('selecting-map');
         renderMapSelector();
+        screen.scrollTo({ top:0, behavior:'auto' });
     }
 
     function chooseMap(mapId) {
@@ -13411,6 +13438,7 @@ window.addEventListener('load', () => {
         else td.sandboxMode = false;
         const map = setActiveMap(mapId);
         screen.classList.remove('selecting-map');
+        screen.scrollTo({ top:0, behavior:'auto' });
         resetDefense();
         setStatus(td.runMode === 'standard'
             ? `${map.name} loaded for Standard Mode. Clear wave 100 to master it and earn a victory.`
@@ -13471,6 +13499,7 @@ window.addEventListener('load', () => {
         td.sandboxMode = false;
         setActiveMap(mission.mapId, false);
         screen.classList.remove('selecting-map');
+        screen.scrollTo({ top:0, behavior:'auto' });
         resetDefense();
         setStatus(`${mission.name}: ${mission.briefing}`);
         playCampaignIntro(mission);
@@ -13487,7 +13516,7 @@ window.addEventListener('load', () => {
             button.type = 'button';
             button.title = tower.hint;
             const image = document.createElement('img');
-            image.dataset.menuSrc = id === 'attackhelicopter' ? 'Attack-Helicopter Monkey.webp' : tower.file;
+            image.dataset.menuSrc = defenseTowerImageSource(id);
             image.loading = 'lazy';
             image.decoding = 'async';
             image.alt = '';
@@ -18015,7 +18044,7 @@ window.addEventListener('load', () => {
         // Preserve the intended 60 Hz simulation speed on phones that render
         // below 30 FPS. The previous 36 ms cap made every defense wave run in
         // slow motion as soon as a device dropped frames.
-        const elapsed = td.lastTime ? Math.min(150, timestamp - td.lastTime) : 16.67;
+        const elapsed = td.lastTime ? Math.min(500, timestamp - td.lastTime) : 16.67;
         td.lastTime = timestamp;
         if (td.active) {
             updateDefense((elapsed / 16.67) * td.speedMultiplier);
@@ -18301,7 +18330,9 @@ function inventoryEsc(value) {
 window.hydrateFlappyMenuImages = function(container, scrollRoot = null) {
     if (!container) return;
     container._flappyImageObserver?.disconnect();
-    window._flappyMenuImageCache ||= new Map();
+    if (container._flappyImageScrollRoot && container._flappyImageScrollHandler) {
+        container._flappyImageScrollRoot.removeEventListener('scroll', container._flappyImageScrollHandler);
+    }
     const load = image => {
         const source = image?.dataset?.menuSrc;
         if (!source) return;
@@ -18309,6 +18340,12 @@ window.hydrateFlappyMenuImages = function(container, scrollRoot = null) {
         image.src = source;
         image.removeAttribute('data-menu-src');
         image.addEventListener('error', () => {
+            const fallback = image.dataset.menuFallback;
+            if (fallback) {
+                image.removeAttribute('data-menu-fallback');
+                image.src = fallback;
+                return;
+            }
             if (image.dataset.retried === 'true') return;
             image.dataset.retried = 'true';
             requestAnimationFrame(() => {
@@ -18318,11 +18355,36 @@ window.hydrateFlappyMenuImages = function(container, scrollRoot = null) {
         }, { once:true });
     };
     const images = [...container.querySelectorAll('img[data-menu-src]')];
-    /* Hydrate only the first visible rows. Loading every hidden card here made
-       mobile browsers decode hundreds of PNGs before their first game frame. */
-    const initialCount = matchMedia('(max-width: 760px), (pointer: coarse)').matches ? 8 : 18;
+    const mobileMenu = matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+    /* Mobile catalogs are paged or category-scoped. Fully hydrate a modest
+       active page so fixed overlays/content-visibility cannot prevent an
+       IntersectionObserver callback. Defense cards use tiny WebP thumbnails. */
+    if (mobileMenu && images.length <= 56) {
+        images.forEach(load);
+        return;
+    }
+    const initialCount = mobileMenu ? 12 : 18;
     images.slice(0, initialCount).forEach(load);
     const deferredImages = images.slice(initialCount);
+    const root = scrollRoot && scrollRoot !== document.body ? scrollRoot : window;
+    let scrollFrame = 0;
+    const loadNearViewport = () => {
+        cancelAnimationFrame(scrollFrame);
+        scrollFrame = requestAnimationFrame(() => {
+            const rootRect = root === window
+                ? { top:0, bottom:innerHeight }
+                : root.getBoundingClientRect();
+            deferredImages.forEach(image => {
+                if (!image.dataset.menuSrc) return;
+                const rect = image.getBoundingClientRect();
+                if (rect.bottom >= rootRect.top - 640 && rect.top <= rootRect.bottom + 640) load(image);
+            });
+        });
+    };
+    root.addEventListener('scroll', loadNearViewport, { passive:true });
+    container._flappyImageScrollRoot = root;
+    container._flappyImageScrollHandler = loadNearViewport;
+    loadNearViewport();
     if (!('IntersectionObserver' in window)) {
         deferredImages.forEach(load);
         return;
@@ -18394,13 +18456,13 @@ function refreshInventoryMenu() {
             const usable = canEquipSkin(skin);
             const usage = getSkinModeUsage(skin);
             const description = [getSkinUnlockSource(skin), usage].filter(Boolean).join(' ');
-            return inventoryCard({ title:skin.name, description, image:skin.file, extra:skinEditStylePicker(skin, 'inventory'), equipped, rarity:skin.rarity, action:inventoryAction(equipped ? 'Equipped' : usable ? 'Equip Monkey' : `Requires ${getSkinRequiredModeLabel(skin)}`, 'skin', index, equipped, equipped || !usable) });
+            return inventoryCard({ title:skin.name, description, image:skinPreviewSource(skin), extra:skinEditStylePicker(skin, 'inventory'), equipped, rarity:skin.rarity, action:inventoryAction(equipped ? 'Equipped' : usable ? 'Equip Monkey' : `Requires ${getSkinRequiredModeLabel(skin)}`, 'skin', index, equipped, equipped || !usable) });
         });
     } else if (activeInventorySection === 'titles') {
         cards = titles.map((title, index) => ({ title, index })).filter(entry => entry.title.unlocked || entry.title.name === 'None').map(({ title, index }) => {
             const equipped = selectedTitle === title.name;
             const details = typeof getTitleCardDetails === 'function' ? getTitleCardDetails(title) : null;
-            return inventoryCard({ title:title.name, description:title.name === 'None' ? 'Hide your equipped title.' : details?.unlockSource || 'Unlocked title', image:details?.linkedSkin?.file || '', swatch:'linear-gradient(145deg,#6640a4,#2b1f66)', equipped, rarity:details?.rarityKey || title.rarity, action:inventoryAction(equipped ? 'Equipped' : 'Equip Title','title',index,equipped,equipped) });
+            return inventoryCard({ title:title.name, description:title.name === 'None' ? 'Hide your equipped title.' : details?.unlockSource || 'Unlocked title', image:details?.linkedSkin ? skinPreviewSource(details.linkedSkin) : '', swatch:'linear-gradient(145deg,#6640a4,#2b1f66)', equipped, rarity:details?.rarityKey || title.rarity, action:inventoryAction(equipped ? 'Equipped' : 'Equip Title','title',index,equipped,equipped) });
         });
     } else if (activeInventorySection === 'pipes') {
         cards = pipeThemes.map((item,index)=>({item,index})).filter(entry=>entry.item.unlocked).map(({item,index})=>{ const equipped=selectedPipeTheme===item.id; return inventoryCard({title:item.name,description:'Unlocked animated pipe appearance',image:cosmeticIconPath('pipe',item.id),equipped,rarity:marketItemInventoryRarity(item),action:inventoryAction(equipped?'Equipped':'Equip Pipes','pipe',index,equipped,equipped)}); });

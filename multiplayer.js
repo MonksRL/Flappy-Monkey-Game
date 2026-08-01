@@ -28,7 +28,8 @@
     const GLOBAL_CHAT_SESSION_STARTED_AT = Date.now();
     const PENDING_MOBILE_SCORE_KEY = 'flappyPendingMobileSkinScore';
     const LOCAL_MOBILE_DEVICE = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent)
-        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+        || matchMedia('(pointer: coarse)').matches;
 
     function normalizedServerAddress(value) {
         return String(value || '').trim().replace(/\/+$/, '').toLowerCase();
@@ -4637,7 +4638,7 @@
             race.accumulator = 0;
             sendRaceState(true);
         }
-        const elapsed = Math.min(250, Math.max(0, now - race.lastTick));
+        const elapsed = Math.min(500, Math.max(0, now - race.lastTick));
         race.lastTick = now;
         if (race.started) {
             if (!LOCAL_MOBILE_DEVICE) {
@@ -4647,12 +4648,12 @@
             } else {
                 race.accumulator += elapsed;
                 let updateCount = 0;
-                while (race.accumulator >= STEP && updateCount < 15) {
+                while (race.accumulator >= STEP && updateCount < 30) {
                     updateRaceStep();
                     race.accumulator -= STEP;
                     updateCount += 1;
                 }
-                if (updateCount === 15) race.accumulator %= STEP;
+                if (updateCount === 30) race.accumulator %= STEP;
             }
             sendRaceState(false);
         }
@@ -5340,6 +5341,8 @@
         }));
     }
     const DEFENSE_TOWERS = Object.freeze(Object.fromEntries(OFFLINE_DEFENSE_CATALOG.order.map((id) => [id, { ...OFFLINE_DEFENSE_CATALOG.towers[id] }])));
+    const onlineDefenseTowerImageSource = (id, config) => OFFLINE_DEFENSE_CATALOG.towerImageSource?.(id) || config?.file || 'Default Monkey.png';
+    const onlineDefensePestImageSource = (pest) => OFFLINE_DEFENSE_CATALOG.pestImageSource?.(pest?.id) || pest?.file || 'Zombie Monkey.png';
     function onlineDefenseTowerStats(placement) {
         const base = DEFENSE_TOWERS[placement?.towerType] || DEFENSE_TOWERS.torn;
         const tiers = Math.max(0, (Number(placement?.level) || 1) - 1);
@@ -6039,7 +6042,7 @@
             ctx.globalAlpha = .9; ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.setLineDash([10, 7]); ctx.stroke(); ctx.setLineDash([]);
             ctx.globalAlpha = .34; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(hover.x, hover.y, 32, 0, Math.PI * 2); ctx.fill();
             ctx.globalAlpha = 1; ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(hover.x, hover.y, 32, 0, Math.PI * 2); ctx.stroke();
-            const preview = config ? imageForSkin(config.file) : null;
+            const preview = config ? imageForSkin(onlineDefenseTowerImageSource(onlineDefense.selectedTower, config)) : null;
             if (preview?.complete && preview.naturalWidth) { ctx.globalAlpha = .8; ctx.drawImage(preview, hover.x - 27, hover.y - 27, 54, 54); }
             ctx.globalAlpha = 1; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.font = '900 14px Arial'; ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(4,30,18,.9)'; ctx.strokeText(label, hover.x, hover.y - 36); ctx.fillStyle = color; ctx.fillText(label, hover.x, hover.y - 36);
             ctx.restore();
@@ -6051,7 +6054,7 @@
             const level = Math.max(1, Number(tower.level) || 1);
             if (selected) { ctx.globalAlpha = .16; ctx.fillStyle = config.color; ctx.beginPath(); ctx.arc(tower.x, tower.y, config.passive === 'weather-luck' ? 48 : stats.range, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; }
             ctx.fillStyle = '#2a241b'; ctx.beginPath(); ctx.arc(tower.x, tower.y, 22, 0, Math.PI * 2); ctx.fill();
-            const image = imageForSkin(config.file);
+            const image = imageForSkin(onlineDefenseTowerImageSource(tower.towerType, config));
             if (image.complete && image.naturalWidth) ctx.drawImage(image, tower.x - 29, tower.y - 29, 58, 58);
             else { ctx.fillStyle = config.color; ctx.beginPath(); ctx.arc(tower.x, tower.y, 23, 0, Math.PI * 2); ctx.fill(); }
             if (tower.towerType === 'christmastree') {
@@ -6116,7 +6119,7 @@
             ctx.shadowBlur = enemy.boss ? 18 : enemy.treasure ? 13 : 0;
             ctx.fillStyle = enemy.jamUntil > now ? '#ffad4d' : enemy.poisonUntil > now ? '#85e35e' : enemy.slowUntil > now ? '#7bdcff' : enemy.boss ? '#8d3154' : enemy.treasure ? '#ffd84f' : (enemy.pest?.color || '#c64758');
             ctx.beginPath(); ctx.arc(0, 0, radius + 2, 0, Math.PI * 2); ctx.fill();
-            const pestImage = imageForSkin(enemy.pest?.file || 'Zombie Monkey.png');
+            const pestImage = imageForSkin(onlineDefensePestImageSource(enemy.pest));
             if (pestImage.complete && pestImage.naturalWidth) { const size = radius * 2.55; ctx.drawImage(pestImage, -size / 2, -size / 2, size, size); }
             if (enemy.boss) {
                 ctx.fillStyle = '#ffe16a';
