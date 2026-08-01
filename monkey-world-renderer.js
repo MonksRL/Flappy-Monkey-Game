@@ -25,11 +25,12 @@
             this.width = width;
             this.height = height;
             this.backgroundImage = new Image();
-            this.backgroundImage.decoding = 'async';
-            // Same illustrated Banana Coast on every platform. The WebP is
-            // roughly one sixth the PNG size, which prevents phones showing
-            // the procedural fallback for several seconds while it downloads.
-            this.backgroundImage.src = 'monkey-world-banana-coast.webp';
+            this.backgroundReady = false;
+            const mobileViewport = matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+            this.backgroundSources = mobileViewport
+                ? ['monkey-world-banana-coast-mobile.webp', 'monkey-world-banana-coast.webp', 'monkey-world-banana-coast.png']
+                : ['monkey-world-banana-coast.webp', 'monkey-world-banana-coast.png'];
+            this.loadBackground(0);
             this.decor = Array.from({ length: 94 }, (_, index) => ({
                 x: 260 + seeded(index, 1) * (width - 520),
                 y: 180 + seeded(index, 2) * (height - 430),
@@ -45,6 +46,23 @@
                 phase: seeded(index, 22) * TAU,
                 speed: .45 + seeded(index, 23) * .8
             }));
+        }
+
+        loadBackground(sourceIndex) {
+            const source = this.backgroundSources[sourceIndex];
+            if (!source) return;
+            const image = new Image();
+            image.decoding = 'async';
+            image.fetchPriority = 'high';
+            image.onload = () => {
+                this.backgroundImage = image;
+                this.backgroundReady = true;
+                image.decode?.().catch(() => {});
+            };
+            image.onerror = () => this.loadBackground(sourceIndex + 1);
+            image.src = source;
+            this.backgroundImage = image;
+            if (image.complete && image.naturalWidth) this.backgroundReady = true;
         }
 
         islandPath(context, inset = 0) {
@@ -454,7 +472,7 @@
             context.clearRect(0, 0, viewWidth, viewHeight);
             context.save();
             context.translate(-cameraX, -cameraY);
-            if (this.backgroundImage.complete && this.backgroundImage.naturalWidth) this.drawIllustratedBackground(context, now);
+            if ((this.backgroundReady || this.backgroundImage.complete) && this.backgroundImage.naturalWidth) this.drawIllustratedBackground(context, now);
             else {
                 // Do not render an entirely different procedural town while the
                 // real coast artwork is downloading. Besides looking wrong, that
