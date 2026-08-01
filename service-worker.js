@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_VERSION = 'flappy-monkey-mobile-v7';
+const CACHE_VERSION = 'flappy-monkey-mobile-v8';
 const DEFENSE_TOWER_ASSETS = [
     'torn','hardcore','honey','watergun','icecrystal','snow','cupid','ninja','toxic','trafficcone','pirate','shark',
     'cyborg','boxer','firework','astronaut','molten','soldier','potgold','seashore','rock','neon','fourleaf','egghunt',
@@ -22,8 +22,14 @@ const APP_SHELL = [
 const OFFLINE_DOCUMENT = new URL('./index.html', self.registration.scope).href;
 
 self.addEventListener('install', (event) => {
-    event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)));
+    event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(
+        APP_SHELL.map((url) => new Request(url, { cache:'reload' }))
+    )));
     self.skipWaiting();
+});
+
+self.addEventListener('message', (event) => {
+    if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
@@ -41,7 +47,7 @@ self.addEventListener('fetch', (event) => {
     const networkFirst = request.mode === 'navigate' || ['script', 'style', 'worker'].includes(request.destination);
 
     if (networkFirst) {
-        event.respondWith(fetch(request).then((response) => {
+        event.respondWith(fetch(request, { cache:'no-store' }).then((response) => {
             if (response.ok) caches.open(CACHE_VERSION).then((cache) => cache.put(request, response.clone()));
             return response;
         }).catch(async () => (await caches.match(request)) || (request.mode === 'navigate' ? caches.match(OFFLINE_DOCUMENT) : Response.error())));
