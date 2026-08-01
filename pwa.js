@@ -50,7 +50,7 @@
             try {
                 // A versioned worker URL and updateViaCache:none bypass stale
                 // installed-app/HTTP caches immediately after a deployment.
-                const registration = await navigator.serviceWorker.register('service-worker.js?v=10', {
+                const registration = await navigator.serviceWorker.register('service-worker.js?v=11', {
                     updateViaCache: 'none'
                 });
                 await registration.update();
@@ -61,6 +61,14 @@
                 };
                 document.addEventListener('visibilitychange', checkForUpdate);
                 window.addEventListener('online', checkForUpdate);
+                // Warm only the small, gameplay-critical defender and pilot
+                // files after the shell is ready. Catalog and crate art keep
+                // loading on demand through the bounded image queue.
+                window.setTimeout(() => {
+                    navigator.serviceWorker.ready.then((readyRegistration) => {
+                        (navigator.serviceWorker.controller || readyRegistration.active)?.postMessage({ type:'WARM_CRITICAL_ART' });
+                    }).catch(() => {});
+                }, 3500);
             } catch (error) {
                 console.warn('Mobile app offline support could not start:', error);
             }

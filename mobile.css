@@ -197,14 +197,8 @@ button, input, select, textarea { font:inherit; }
         font-size:18px!important;
     }
     body #dailyQuestBtn span { display:none!important; }
-    body #secretSockBtn {
-        left:max(8px,var(--mobile-safe-left))!important;
-        bottom:calc(max(5px,var(--mobile-safe-bottom)) + 94px)!important;
-        width:36px!important;
-        height:36px!important;
-        min-height:36px!important;
-        opacity:.82;
-    }
+    /* The secret remains available in More without covering the playfield. */
+    body #secretSockBtn { display:none!important; }
     #settingsPopup, #skinMenu, #titlesMenu, #modeMenu, #shopMenu, #profileMenu,
     #bananaPassMenu, #inventoryMenu, #collectionIndexPopup, #musicOptionsPopup,
     #powerupsInfoPopup, #customTitleColorPopup, #socialsPopup, #dailyQuestPopup,
@@ -234,6 +228,52 @@ button, input, select, textarea { font:inherit; }
     .mw-controls { display:none!important; }
     #mwInteract { left:auto!important; right:max(16px,var(--mobile-safe-right)); bottom:max(22px,var(--mobile-safe-bottom)); min-width:150px; transform:none!important; }
     .mw-chat-toggle { right:max(16px,var(--mobile-safe-right)); bottom:calc(max(22px,var(--mobile-safe-bottom)) + 58px); }
+}
+
+/* Mobile performance profile. Preserve the art and interactions while
+   removing GPU-heavy blur/ambient layers that do not affect gameplay. */
+@media (max-width:760px), (pointer:coarse), (max-height:520px) and (orientation:landscape) {
+    html.mobile-performance #settingsPopup,
+    html.mobile-performance #skinMenu,
+    html.mobile-performance #titlesMenu,
+    html.mobile-performance #modeMenu,
+    html.mobile-performance #shopMenu,
+    html.mobile-performance #profileMenu,
+    html.mobile-performance #bananaPassMenu,
+    html.mobile-performance #inventoryMenu,
+    html.mobile-performance #collectionIndexPopup,
+    html.mobile-performance #powerupsInfoPopup,
+    html.mobile-performance #unlockPopup,
+    html.mobile-performance #crateOpeningPopup,
+    html.mobile-performance #secretDecodePopup,
+    html.mobile-performance .mp-overlay,
+    html.mobile-performance .mw-topbar,
+    html.mobile-performance .mw-location,
+    html.mobile-performance .mw-chat,
+    html.mobile-performance .mw-controls,
+    html.mobile-performance .mw-interior-panel,
+    html.mobile-performance .mw-interior-description {
+        -webkit-backdrop-filter:none!important;
+        backdrop-filter:none!important;
+    }
+    html.mobile-performance .skin-option,
+    html.mobile-performance .title-option,
+    html.mobile-performance .shop-option,
+    html.mobile-performance .inventory-card,
+    html.mobile-performance .collection-index-card {
+        animation:none!important;
+        transition:none!important;
+    }
+    html.mobile-performance #crateOpeningPopup::before,
+    html.mobile-performance #crateOpeningPopup::after,
+    html.mobile-performance #crateOpeningPopup .cinematic-scanline,
+    html.mobile-performance #crateOpeningPopup .cinematic-ring--outer {
+        display:none!important;
+    }
+    html.mobile-performance #crateOpeningPopup .reward-crate__aura {
+        filter:none!important;
+    }
+    html.mobile-performance .birthday-confetti:nth-child(n+13) { display:none!important; }
 }
 
 @media (max-width:390px) {

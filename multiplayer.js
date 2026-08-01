@@ -1758,7 +1758,10 @@
         const viewWidth = Math.min(MONKEY_WORLD_WIDTH, Math.round(cssWidth * mobileCameraZoom));
         const viewHeight = Math.min(MONKEY_WORLD_HEIGHT, Math.round(cssHeight * mobileCameraZoom));
         const mobileWorld = LOCAL_MOBILE_DEVICE || matchMedia('(pointer: coarse)').matches || cssWidth <= 760;
-        const density = Math.min(mobileWorld ? 1.35 : 1.75, Math.max(1, Number(devicePixelRatio) || 1));
+        // A 1× internal buffer is already sharp at the phone's CSS size and
+        // avoids pushing more than two million pixels through every world
+        // frame on tall devices. Desktop keeps its higher-density buffer.
+        const density = mobileWorld ? 1 : Math.min(1.75, Math.max(1, Number(devicePixelRatio) || 1));
         const pixelWidth = Math.round(cssWidth * density);
         const pixelHeight = Math.round(cssHeight * density);
         if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
@@ -4657,8 +4660,16 @@
             }
             sendRaceState(false);
         }
-        drawRace();
-        updateRaceHud();
+        if (!LOCAL_MOBILE_DEVICE || !race.lastDrawAt || now - race.lastDrawAt >= 30) {
+            drawRace();
+            race.lastDrawAt = now;
+        }
+        // Rebuilding the complete live-standings DOM every animation frame was
+        // more expensive than the race canvas on lower-end phones.
+        if (!LOCAL_MOBILE_DEVICE || !race.lastHudAt || now - race.lastHudAt >= 180) {
+            updateRaceHud();
+            race.lastHudAt = now;
+        }
         race.animationFrame = requestAnimationFrame(raceLoop);
     }
 
@@ -6831,8 +6842,14 @@
             send({ type: 'defense_ready' });
         }
         advanceDefenseSimulation(now);
-        drawDefenseScene(now);
-        updateDefenseHud();
+        if (!LOCAL_MOBILE_DEVICE || !onlineDefense.lastDrawAt || now - onlineDefense.lastDrawAt >= 30) {
+            drawDefenseScene(now);
+            onlineDefense.lastDrawAt = now;
+        }
+        if (!LOCAL_MOBILE_DEVICE || !onlineDefense.lastHudAt || now - onlineDefense.lastHudAt >= 140) {
+            updateDefenseHud();
+            onlineDefense.lastHudAt = now;
+        }
         reportDefenseProgress();
         onlineDefense.lastFrameAt = now;
         onlineDefense.animationFrame = requestAnimationFrame(defenseFrame);
