@@ -50,7 +50,7 @@
             try {
                 // A versioned worker URL and updateViaCache:none bypass stale
                 // installed-app/HTTP caches immediately after a deployment.
-                const registration = await navigator.serviceWorker.register('service-worker.js?v=8', {
+                const registration = await navigator.serviceWorker.register('service-worker.js?v=9', {
                     updateViaCache: 'none'
                 });
                 await registration.update();

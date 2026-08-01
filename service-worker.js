@@ -1,23 +1,12 @@
 'use strict';
 
-const CACHE_VERSION = 'flappy-monkey-mobile-v8';
-const DEFENSE_TOWER_ASSETS = [
-    'torn','hardcore','honey','watergun','icecrystal','snow','cupid','ninja','toxic','trafficcone','pirate','shark',
-    'cyborg','boxer','firework','astronaut','molten','soldier','potgold','seashore','rock','neon','fourleaf','egghunt',
-    'bbq','electric','easter','sun','leprechaun','cracked','lightning','birthdaybash','popcorn','flowerbloom','gift',
-    'scuba','soda','candycane','rose','santa','elf','christmastree','discoball','cowboy','bossbreaker','glitch',
-    'darkmatter','attackhelicopter'
-].map((id) => `./defense-art/towers/${id}.webp`);
-const DEFENSE_PEST_ASSETS = ['wonks','zombie','vampire','skeleton','mummy','frankenstein','ghost']
-    .map((id) => `./defense-art/pests/${id}.webp`);
+const CACHE_VERSION = 'flappy-monkey-mobile-v9';
 const APP_SHELL = [
-    './', './index.html', './manifest.json', './mobile.css', './multiplayer.css',
-    './birthday-event.css', './game-dialog.css', './game-dialog.js', './birthday-event.js',
-    './account-storage.js', './multiplayer-client-config.js', './monkey-world-renderer.js',
-    './multiplayer.js', './pwa.js', './mobile-ui.js', './monkey-192.png', './monkey-512.png',
-    './Default Monkey.png', './sock-monkey.png', './Mobile Monkey.png',
-    './monkey-world-banana-coast.webp', './monkey-world-banana-coast-mobile.webp', './attack-helicopter-defender.webp',
-    './Attack-Helicopter Monkey.webp', ...DEFENSE_TOWER_ASSETS, ...DEFENSE_PEST_ASSETS
+    './index.html', './manifest.json?v=9', './mobile.css?v=9', './multiplayer.css?v=9',
+    './birthday-event.css?v=9', './game-dialog.css?v=9', './game-dialog.js?v=9', './birthday-event.js?v=9',
+    './account-storage.js?v=9', './multiplayer-client-config.js?v=9', './monkey-world-renderer.js?v=9',
+    './multiplayer.js?v=9', './pwa.js?v=9', './mobile-ui.js?v=9',
+    './monkey-192.png', './monkey-512.png', './Default Monkey.png'
 ].map((path) => new URL(path, self.registration.scope).href);
 const OFFLINE_DOCUMENT = new URL('./index.html', self.registration.scope).href;
 
