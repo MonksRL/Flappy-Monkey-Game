@@ -1,12 +1,14 @@
 'use strict';
 
-const CACHE_VERSION = 'flappy-monkey-mobile-v4';
+const CACHE_VERSION = 'flappy-monkey-mobile-v6';
 const APP_SHELL = [
     './', './index.html', './manifest.json', './mobile.css', './multiplayer.css',
     './birthday-event.css', './game-dialog.css', './game-dialog.js', './birthday-event.js',
     './account-storage.js', './multiplayer-client-config.js', './monkey-world-renderer.js',
-    './multiplayer.js', './pwa.js', './monkey-192.png', './monkey-512.png',
-    './Default Monkey.png', './sock-monkey.png', './Mobile Monkey.png'
+    './multiplayer.js', './pwa.js', './mobile-ui.js', './monkey-192.png', './monkey-512.png',
+    './Default Monkey.png', './sock-monkey.png', './Mobile Monkey.png',
+    './monkey-world-banana-coast.webp', './attack-helicopter-defender.webp',
+    './Attack-Helicopter Monkey.webp'
 ].map((path) => new URL(path, self.registration.scope).href);
 const OFFLINE_DOCUMENT = new URL('./index.html', self.registration.scope).href;
 

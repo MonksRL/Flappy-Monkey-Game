@@ -26,7 +26,10 @@
             this.height = height;
             this.backgroundImage = new Image();
             this.backgroundImage.decoding = 'async';
-            this.backgroundImage.src = 'monkey-world-banana-coast.png';
+            // Same illustrated Banana Coast on every platform. The WebP is
+            // roughly one sixth the PNG size, which prevents phones showing
+            // the procedural fallback for several seconds while it downloads.
+            this.backgroundImage.src = 'monkey-world-banana-coast.webp';
             this.decor = Array.from({ length: 94 }, (_, index) => ({
                 x: 260 + seeded(index, 1) * (width - 520),
                 y: 180 + seeded(index, 2) * (height - 430),
@@ -453,19 +456,21 @@
             context.translate(-cameraX, -cameraY);
             if (this.backgroundImage.complete && this.backgroundImage.naturalWidth) this.drawIllustratedBackground(context, now);
             else {
-                this.drawOcean(context, now);
-                this.drawIsland(context, now);
-                this.drawRoads(context);
-                this.drawPond(context, now);
-                for (const item of this.decor) this.drawTree(context, item, now);
-                this.drawProps(context, now);
-                for (const building of buildings) this.drawBuilding(context, building, now);
-                for (const sparkle of this.sparkles) {
-                    const alpha = .14 + Math.sin(now * .001 * sparkle.speed + sparkle.phase) * .12;
-                    context.globalAlpha = Math.max(0, alpha);
-                    context.fillStyle = '#fffbd1';
-                    context.beginPath(); context.arc(sparkle.x, sparkle.y, 2.5, 0, TAU); context.fill();
-                }
+                // Do not render an entirely different procedural town while the
+                // real coast artwork is downloading. Besides looking wrong, that
+                // fallback drew hundreds of shapes every frame on the slowest
+                // devices. This lightweight loading field is replaced as soon as
+                // the compressed illustration finishes decoding.
+                const loading = context.createLinearGradient(0, 0, 0, this.height);
+                loading.addColorStop(0, '#0b7891');
+                loading.addColorStop(.55, '#159a88');
+                loading.addColorStop(1, '#1f6948');
+                context.fillStyle = loading;
+                context.fillRect(0, 0, this.width, this.height);
+                context.fillStyle = 'rgba(255,239,139,.16)';
+                context.beginPath();
+                context.arc(this.width / 2, this.height / 2, 260 + Math.sin(now * .002) * 12, 0, TAU);
+                context.fill();
             }
             context.globalAlpha = 1;
             context.restore();
