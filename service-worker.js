@@ -1,11 +1,11 @@
 'use strict';
 
-const CACHE_VERSION = 'flappy-monkey-mobile-v9';
+const CACHE_VERSION = 'flappy-monkey-mobile-v10';
 const APP_SHELL = [
-    './index.html', './manifest.json?v=9', './mobile.css?v=9', './multiplayer.css?v=9',
-    './birthday-event.css?v=9', './game-dialog.css?v=9', './game-dialog.js?v=9', './birthday-event.js?v=9',
-    './account-storage.js?v=9', './multiplayer-client-config.js?v=9', './monkey-world-renderer.js?v=9',
-    './multiplayer.js?v=9', './pwa.js?v=9', './mobile-ui.js?v=9',
+    './index.html', './manifest.json?v=10', './mobile.css?v=10', './multiplayer.css?v=10',
+    './birthday-event.css?v=10', './game-dialog.css?v=10', './game-dialog.js?v=10', './birthday-event.js?v=10',
+    './account-storage.js?v=10', './multiplayer-client-config.js?v=10', './monkey-world-renderer.js?v=10',
+    './multiplayer.js?v=10', './pwa.js?v=10', './mobile-ui.js?v=10',
     './monkey-192.png', './monkey-512.png', './Default Monkey.png'
 ].map((path) => new URL(path, self.registration.scope).href);
 const OFFLINE_DOCUMENT = new URL('./index.html', self.registration.scope).href;

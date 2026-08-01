@@ -13,14 +13,14 @@
     <link rel="icon" href="icon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="icon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="monkey-192.png">
-    <script>document.documentElement.dataset.appBuild = 'mobile-v9'; if (location.protocol === 'http:' || location.protocol === 'https:') { const manifest = document.createElement('link'); manifest.rel = 'manifest'; manifest.href = 'manifest.json?v=9'; document.head.appendChild(manifest); }</script>
-    <link rel="stylesheet" href="multiplayer.css?v=9">
-    <link rel="stylesheet" href="birthday-event.css?v=9">
-    <link rel="stylesheet" href="game-dialog.css?v=9">
-    <link rel="stylesheet" href="mobile.css?v=9">
-    <script src="game-dialog.js?v=9"></script>
-    <script src="birthday-event.js?v=9"></script>
-    <script src="account-storage.js?v=9"></script>
+    <script>document.documentElement.dataset.appBuild = 'mobile-v10'; if (location.protocol === 'http:' || location.protocol === 'https:') { const manifest = document.createElement('link'); manifest.rel = 'manifest'; manifest.href = 'manifest.json?v=10'; document.head.appendChild(manifest); }</script>
+    <link rel="stylesheet" href="multiplayer.css?v=10">
+    <link rel="stylesheet" href="birthday-event.css?v=10">
+    <link rel="stylesheet" href="game-dialog.css?v=10">
+    <link rel="stylesheet" href="mobile.css?v=10">
+    <script src="game-dialog.js?v=10"></script>
+    <script src="birthday-event.js?v=10"></script>
+    <script src="account-storage.js?v=10"></script>
     <script>
         // Run a final progress wipe before any game variables read localStorage.
         // This prevents late timers from restoring XP, scores, or achievements
@@ -1691,7 +1691,7 @@ button:hover {
         <section class="mobile-more-panel" role="dialog" aria-modal="true" aria-labelledby="mobileMoreTitle">
             <div class="mobile-more-handle" aria-hidden="true"></div>
             <div class="mobile-more-heading">
-                <div><strong id="mobileMoreTitle">More</strong><span>Game menus and settings · Build mobile-v9</span></div>
+                <div><strong id="mobileMoreTitle">More</strong><span>Game menus and settings · Build mobile-v10</span></div>
                 <button id="mobileMoreClose" type="button" aria-label="Close more menu">✕</button>
             </div>
             <div class="mobile-more-grid">
@@ -6763,15 +6763,16 @@ if (selectedTitle && selectedTitle !== 'None') {
             if (confettiParticles.length > 0) drawConfetti();
         }
 
-        // Keep gameplay physics at the same speed on 30 Hz, 60 Hz, 90 Hz,
-        // and 120 Hz displays. Rendering may skip frames on a slower phone,
-        // but gravity, jumps, pipes, collisions, and frame-based effects still
-        // advance at the original 60 updates per second.
-        const GAME_UPDATE_MS = 1000 / 60;
+        // The original game advanced once per display refresh and was tuned on
+        // high-refresh desktop screens. Phones commonly cap browser rendering
+        // at 60/30 Hz, so run mobile physics at 120 Hz independently of drawing.
+        // This keeps gravity, jumps, and pipe movement real-time even when a
+        // slower device can render only a fraction of those simulation steps.
+        const MOBILE_GAME_UPDATE_MS = 1000 / 120;
         // Preserve up to half a second on severely overloaded phones. The
         // simulation work is cheap; throwing this time away is what makes
         // gravity and pipes look like slow motion on low-frame-rate devices.
-        const MAX_GAME_UPDATES_PER_FRAME = 30;
+        const MAX_GAME_UPDATES_PER_FRAME = 60;
         const MOBILE_REAL_TIME_GAMEPLAY = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent)
             || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
             || matchMedia('(pointer: coarse)').matches;
@@ -6798,12 +6799,12 @@ if (selectedTitle && selectedTitle !== 'None') {
                 // frame cannot turn gravity and pipes into slow motion.
                 gameUpdateAccumulator += elapsed;
                 let updateCount = 0;
-                while (gameUpdateAccumulator >= GAME_UPDATE_MS && updateCount < MAX_GAME_UPDATES_PER_FRAME) {
+                while (gameUpdateAccumulator >= MOBILE_GAME_UPDATE_MS && updateCount < MAX_GAME_UPDATES_PER_FRAME) {
                     update();
-                    gameUpdateAccumulator -= GAME_UPDATE_MS;
+                    gameUpdateAccumulator -= MOBILE_GAME_UPDATE_MS;
                     updateCount++;
                 }
-                if (updateCount === MAX_GAME_UPDATES_PER_FRAME) gameUpdateAccumulator %= GAME_UPDATE_MS;
+                if (updateCount === MAX_GAME_UPDATES_PER_FRAME) gameUpdateAccumulator %= MOBILE_GAME_UPDATE_MS;
             }
             // A static lobby does not need a full canvas repaint at 60/120 Hz.
             // Throttling it frees the GPU for whichever full-screen mode is open.
@@ -6939,7 +6940,9 @@ const MOBILE_SKINS_PER_PAGE = 24;
 function skinPreviewSource(skinOrFile, animated = false) {
     const skin = typeof skinOrFile === 'object' ? skinOrFile : null;
     const file = String(skin?.file || skinOrFile || '');
-    if (!file || animated || skin?.animated || /^(?:data:|blob:|https?:)/i.test(file)) return file;
+    // Catalogs use a lightweight static WebP even for animated gameplay skins.
+    // The selected skin still uses its original GIF during actual gameplay.
+    if (!file || animated || /^(?:data:|blob:|https?:)/i.test(file)) return file;
     const filename = file.split('/').pop();
     return `skin-thumbnails/${filename.replace(/\.[^.]+$/, '')}.webp`;
 }
@@ -6952,6 +6955,7 @@ function refreshSkinMenu(options = {}) {
     // hidden cards or decode their artwork until this menu is actually open.
     if (menu.style.display !== 'flex' && !options.force) {
         grid.replaceChildren();
+        document.getElementById('skinMenuPager')?.remove();
         return;
     }
     grid.innerHTML = '';
@@ -7465,24 +7469,20 @@ else {
         grid.appendChild(div);
     });
 
+    const existingPager = document.getElementById('skinMenuPager');
     if (!filteredSkins.length) {
+        existingPager?.remove();
         const noResult = document.createElement('div');
         noResult.className = 'no-results';
         noResult.textContent = searchTerm ? `No skins found matching “${searchTerm}”` : `No ${rarityFilter} skins found`;
         grid.appendChild(noResult);
     } else if (mobileMenu && pageCount > 1) {
-        const pager = document.createElement('div');
+        const pager = existingPager || document.createElement('div');
+        pager.id = 'skinMenuPager';
         pager.className = 'skin-menu-pager';
         pager.innerHTML = `<button type="button" data-skin-page="previous" ${skinMenuPage === 1 ? 'disabled' : ''}>← Previous</button><span>Page ${skinMenuPage} of ${pageCount}<br>${filteredSkins.length} matches</span><button type="button" data-skin-page="next" ${skinMenuPage === pageCount ? 'disabled' : ''}>Next →</button>`;
-        pager.addEventListener('click', event => {
-            const button = event.target.closest('[data-skin-page]');
-            if (!button || button.disabled) return;
-            skinMenuPage += button.dataset.skinPage === 'next' ? 1 : -1;
-            refreshSkinMenu({ force:true });
-            menu.scrollTo({ top:0, behavior:'auto' });
-        });
-        grid.appendChild(pager);
-    }
+        if (!pager.isConnected) menu.appendChild(pager);
+    } else existingPager?.remove();
     window.hydrateFlappyMenuImages?.(grid, menu);
 }
 
@@ -10427,25 +10427,48 @@ window.addEventListener('load', () => {
 function applySkinFilter() {
     skinMenuPage = 1;
     refreshSkinMenu({ force:true });
+    document.getElementById('skinMenu')?.scrollTo({ top:0, behavior:'auto' });
 }
 
 // Setup event listeners
 function setupSkinSearchAndFilter() {
     const searchInput = document.getElementById('skinSearchInput');
     const raritySelect = document.getElementById('rarityFilter');
+    const menu = document.getElementById('skinMenu');
+    let refreshQueued = false;
+    const refreshImmediately = () => {
+        if (refreshQueued) return;
+        refreshQueued = true;
+        Promise.resolve().then(() => {
+            refreshQueued = false;
+            applySkinFilter();
+        });
+    };
 
-    let refreshFrame = 0;
-    if (searchInput) searchInput.addEventListener('input', () => {
-        cancelAnimationFrame(refreshFrame);
-        refreshFrame = requestAnimationFrame(applySkinFilter);
-    });
-    if (raritySelect) raritySelect.addEventListener('change', applySkinFilter);
+    if (searchInput && searchInput.dataset.skinFilterBound !== 'true') {
+        searchInput.dataset.skinFilterBound = 'true';
+        ['input','change','search','compositionend'].forEach(type => searchInput.addEventListener(type, refreshImmediately));
+    }
+    if (raritySelect && raritySelect.dataset.skinFilterBound !== 'true') {
+        raritySelect.dataset.skinFilterBound = 'true';
+        raritySelect.addEventListener('input', refreshImmediately);
+        raritySelect.addEventListener('change', refreshImmediately);
+    }
+    if (menu && menu.dataset.skinPagerBound !== 'true') {
+        menu.dataset.skinPagerBound = 'true';
+        menu.addEventListener('click', event => {
+            const button = event.target.closest('[data-skin-page]');
+            if (!button || button.disabled) return;
+            skinMenuPage += button.dataset.skinPage === 'next' ? 1 : -1;
+            refreshSkinMenu({ force:true });
+            menu.scrollTo({ top:0, behavior:'auto' });
+        });
+    }
 }
 
-// Initialize skin filter when page loads
-window.addEventListener('load', () => {
-    setupSkinSearchAndFilter();
-});
+// Bind immediately so a restored installed app never misses the load event.
+setupSkinSearchAndFilter();
+window.addEventListener('pageshow', setupSkinSearchAndFilter);
     </script>
 
             <!-- SOCIALS MENU POPUP -->
@@ -11461,7 +11484,7 @@ window.addEventListener('load', () => {
     .banana-pass-wallet { margin: 9px 0 0; color: #ffe578; font-weight: 800; font-size: 14px; }
     .banana-pass-grid { display: grid; gap: 12px; margin: 22px 0; }
     .banana-pass-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: stretch; }
-    .banana-pass-column-label { padding: 0 15px 4px; color: #bcd1bb; font-size: 12px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
+    .banana-pass-column-label { margin-top: 24px; padding: 0 15px 4px; color: #bcd1bb; font-size: 12px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
     .banana-pass-column-label.premium { color: #ffe47a; }
     .banana-pass-tier, .banana-pass-reward { min-height: 86px; border-radius: 18px; }
     .banana-pass-tier { display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,.14); background: rgba(5,19,18,.8); color: #d9e9d6; font-weight: 900; }
@@ -11684,7 +11707,7 @@ window.addEventListener('load', () => {
     function rewardIconMarkup(reward) {
         if (reward.type === 'skin') {
             const skin = monkeySkins.find((entry) => entry.name === reward.name);
-            return skin ? `<img class="banana-pass-reward-image banana-pass-skin-image" src="${skin.file}" alt="${skin.name}" loading="lazy">` : '';
+            return skin ? `<img class="banana-pass-reward-image banana-pass-skin-image" data-menu-src="${skinPreviewSource(skin)}" data-menu-fallback="${skin.file}" alt="${skin.name}" loading="lazy" decoding="async">` : '';
         }
         if (reward.type === 'boost') {
             const file = PASS_POWERUP_IMAGES[reward.boost];
@@ -11754,6 +11777,7 @@ window.addEventListener('load', () => {
         passGrid.querySelectorAll('.banana-pass-claim').forEach((button) => {
             button.addEventListener('click', () => claimReward(button.dataset.track, Number(button.dataset.tier)));
         });
+        window.hydrateFlappyMenuImages?.(passGrid, passMenu);
     }
 
     function claimReward(track, index) {
@@ -18337,9 +18361,7 @@ window.hydrateFlappyMenuImages = function(container, scrollRoot = null) {
         const source = image?.dataset?.menuSrc;
         if (!source) return;
         image.loading = 'eager';
-        image.src = source;
-        image.removeAttribute('data-menu-src');
-        image.addEventListener('error', () => {
+        const recover = () => {
             const fallback = image.dataset.menuFallback;
             if (fallback) {
                 image.removeAttribute('data-menu-fallback');
@@ -18352,7 +18374,12 @@ window.hydrateFlappyMenuImages = function(container, scrollRoot = null) {
                 image.src = '';
                 image.src = source;
             });
-        }, { once:true });
+        };
+        // Cached failures can fire immediately, so attach recovery first.
+        image.addEventListener('error', recover);
+        image.src = source;
+        image.removeAttribute('data-menu-src');
+        image.decode?.().catch(() => {});
     };
     const images = [...container.querySelectorAll('img[data-menu-src]')];
     const mobileMenu = matchMedia('(max-width: 760px), (pointer: coarse)').matches;
@@ -19642,11 +19669,11 @@ applyProfileTheme();
     window.addEventListener('keydown', listenForJade, true);
 })();
 </script>
-<script src="multiplayer-client-config.js?v=9"></script>
-<script src="monkey-world-renderer.js?v=9"></script>
-<script src="multiplayer.js?v=9"></script>
-<script src="pwa.js?v=9"></script>
-<script src="mobile-ui.js?v=9"></script>
+<script src="multiplayer-client-config.js?v=10"></script>
+<script src="monkey-world-renderer.js?v=10"></script>
+<script src="multiplayer.js?v=10"></script>
+<script src="pwa.js?v=10"></script>
+<script src="mobile-ui.js?v=10"></script>
 <style id="controller-accessibility-upgrade">
     :root { --shake-scale: 1; }
     #settingsPopup .settings-box { width:min(900px,100%); max-height:90vh; overflow:auto; text-align:left; }
