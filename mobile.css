@@ -446,7 +446,7 @@ button, input, select, textarea { font:inherit; }
         width:100%!important;
         max-width:none!important;
         gap:9px!important;
-        padding:6px 0 90px!important;
+        padding:6px 0 140px!important;
         box-sizing:border-box;
     }
     #skinGrid .skin-option, #titlesGrid .title-option, #modeGrid .mode-option {
@@ -488,11 +488,6 @@ button, input, select, textarea { font:inherit; }
     }
     .skin-menu-pager button { min-width:0!important; min-height:44px!important; padding:7px!important; font-size:11px!important; }
     .skin-menu-pager span { color:#d8edda; font-size:9px; font-weight:900; text-align:center; }
-    #skinMenu:has(.skin-menu-toolbar :focus) .skin-menu-pager {
-        visibility:hidden;
-        pointer-events:none;
-    }
-
     /* Every long menu keeps its exit action within thumb reach. */
     #closeProfileMenu, #closeBananaPass, #closeInventory, #closeSettingsBtn,
     #closeMusicOptions, #closePowerupsInfo, #closeDailyQuestPopup,
