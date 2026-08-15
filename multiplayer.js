@@ -203,7 +203,8 @@
         resumeAfterReconnect: null,
         pendingChatText: '',
         pendingChatNeedsResend: false,
-        localEmote: null
+        localEmote: null,
+        eventRewardOpen: false
     };
 
     const MONKEY_WORLD_EVENT_AUDIO = Object.freeze({
@@ -216,6 +217,7 @@
         last_monkey_standing: { src:'assets/audio/monkey-world/last-monkey-standing.mp3', channel:'music', volume:.9, replaceMusic:true }
     });
     const monkeyWorldEventAudio = { type:'', track:null, config:null, mainPaused:false };
+    const monkeyWorldEventOneShots = new Set();
     const monkeyWorldEmoteAudio = new Map();
 
     function eventAudioChannelVolume(channel) {
@@ -254,17 +256,33 @@
         window.FlappyMainMusicController?.resumeAfterWorldEvent?.();
     }
 
-    function stopMonkeyWorldEventAudio({ resumeMain = true } = {}) {
+    function stopMonkeyWorldEventOneShots() {
+        for (const audio of monkeyWorldEventOneShots) {
+            monkeyWorldEventOneShots.delete(audio);
+            if (audio.__flappyFadeFrame) cancelAnimationFrame(audio.__flappyFadeFrame);
+            audio.pause();
+            try { audio.currentTime = 0; } catch (_) {}
+            audio.remove();
+        }
+    }
+
+    function stopMonkeyWorldEventAudio({ resumeMain = true, immediate = false } = {}) {
         const oldTrack = monkeyWorldEventAudio.track;
         monkeyWorldEventAudio.track = null;
         monkeyWorldEventAudio.type = '';
         monkeyWorldEventAudio.config = null;
-        if (oldTrack) fadeEventAudio(oldTrack, 0, 1000, () => {
+        if (oldTrack && immediate) {
+            if (oldTrack.__flappyFadeFrame) cancelAnimationFrame(oldTrack.__flappyFadeFrame);
             oldTrack.pause();
             try { oldTrack.currentTime = 0; } catch (_) {}
             oldTrack.remove();
-        });
-        if (resumeMain) window.setTimeout(resumeMainMusicAfterWorldEvent, oldTrack ? 760 : 0);
+        } else if (oldTrack) fadeEventAudio(oldTrack, 0, 1000, () => {
+                oldTrack.pause();
+                try { oldTrack.currentTime = 0; } catch (_) {}
+                oldTrack.remove();
+            });
+        if (immediate) stopMonkeyWorldEventOneShots();
+        if (resumeMain) window.setTimeout(resumeMainMusicAfterWorldEvent, immediate ? 0 : oldTrack ? 760 : 0);
     }
 
     function syncMonkeyWorldEventAudio(event = monkeyWorld.world?.event || null) {
@@ -318,6 +336,7 @@
         audio.volume = 0;
         audio.dataset.monkeyWorldOneShot = 'true';
         document.body.appendChild(audio);
+        monkeyWorldEventOneShots.add(audio);
         let releasing = false;
         audio.addEventListener('timeupdate', () => {
             if (!releasing && Number.isFinite(audio.duration) && audio.duration - audio.currentTime < .22) {
@@ -325,8 +344,8 @@
                 fadeEventAudio(audio, 0, 190);
             }
         });
-        audio.addEventListener('ended', () => audio.remove(), { once:true });
-        audio.play().then(() => fadeEventAudio(audio, target, 65)).catch(() => audio.remove());
+        audio.addEventListener('ended', () => { monkeyWorldEventOneShots.delete(audio); audio.remove(); }, { once:true });
+        audio.play().then(() => fadeEventAudio(audio, target, 65)).catch(() => { monkeyWorldEventOneShots.delete(audio); audio.remove(); });
     }
 
     function playWorldEventEffectAudio(effect = {}) {
@@ -1795,7 +1814,10 @@
         monkeyWorld.active = false;
         monkeyWorld.menuBackdropFrozen = false;
         document.documentElement.classList.remove('mw-full-menu-open');
-        stopMonkeyWorldEventAudio({ resumeMain:true });
+        // Leaving Monkey World must be immediate. A requestAnimationFrame fade
+        // can be throttled while the screen is hidden and otherwise leaves the
+        // event soundtrack playing over the lobby music.
+        stopMonkeyWorldEventAudio({ resumeMain:true, immediate:true });
         stopAllWorldEmoteAudio();
         if (monkeyWorld.animationFrame) cancelAnimationFrame(monkeyWorld.animationFrame);
         monkeyWorld.animationFrame = null;
@@ -1808,6 +1830,7 @@
         monkeyWorld.interiorX = 50;
         monkeyWorld.interiorY = 80;
         monkeyWorld.localEmote = null;
+        monkeyWorld.eventRewardOpen = false;
         monkeyWorld3D?.exitInterior?.();
         if (elements.mwTouchKnob) elements.mwTouchKnob.style.transform = 'translate(0px, 0px)';
     }
@@ -1861,6 +1884,7 @@
         monkeyWorld.pendingChatText = '';
         monkeyWorld.pendingChatNeedsResend = false;
         monkeyWorld.pausedForMenu = false;
+        monkeyWorld.eventRewardOpen = false;
         monkeyWorld.currentInterior = null;
         monkeyWorld.nearbyInteriorStation = null;
         monkeyWorld.interiorX = 50;
@@ -2474,6 +2498,32 @@
             if (rankImage.complete && rankImage.naturalWidth) context.drawImage(rankImage, player.x - labelWidth / 2 + 8, nameTop + 3, 25, 25);
         }
         if (platformIconSpace) drawPlatformBadge(context, player.x + labelWidth / 2 - 17, nameCenter, player.platform, 17);
+        const voiceActivity = window.flappyMonkeyWorldVoiceActivity?.(player.profileId);
+        if (voiceActivity?.speaking || voiceActivity?.muted) {
+            const indicatorX = player.x + labelWidth / 2 + 15;
+            const wave = Math.min(1, Math.max(.18, Number(voiceActivity.level || 0) * 8));
+            context.save();
+            context.translate(indicatorX,nameCenter);
+            context.fillStyle = voiceActivity.muted ? 'rgba(102,115,110,.94)' : '#4ff0a2';
+            context.strokeStyle = voiceActivity.muted ? 'rgba(215,225,220,.72)' : '#baffd7';
+            context.lineWidth=2;
+            context.shadowColor=voiceActivity.muted?'transparent':'#4ff0a2';
+            context.shadowBlur=voiceActivity.muted?0:10+wave*8;
+            context.beginPath();context.roundRect(-12,-12,24,24,10);context.fill();context.stroke();
+            context.strokeStyle='#062f24';context.lineWidth=2.2;context.lineCap='round';
+            if (voiceActivity.muted) {
+                context.beginPath();context.moveTo(-5,-5);context.lineTo(5,5);context.moveTo(5,-5);context.lineTo(-5,5);context.stroke();
+            } else {
+                const pulse=(Math.sin(now*.018)+1)*.5;
+                context.beginPath();context.moveTo(-6,-3);context.lineTo(-2,-3);context.lineTo(3,-7);context.lineTo(3,7);context.lineTo(-2,3);context.lineTo(-6,3);context.closePath();context.stroke();
+                for(let arc=0;arc<2;arc+=1){
+                    context.globalAlpha=.62+wave*.34;
+                    context.lineWidth=1.6+wave;
+                    context.beginPath();context.arc(3,0,6+arc*4+pulse*wave*2,-.78,.78);context.stroke();
+                }
+            }
+            context.restore();
+        }
         if (equippedTitle) {
             const style = normalizedTitleStyle(player.titleStyle);
             context.font = '900 10px Arial';
@@ -2587,8 +2637,12 @@
         const players = [...monkeyWorld.players.values()].filter((player) => player.profileId !== state.account?.id);
         players.push({ ...(monkeyWorld.players.get([...monkeyWorld.players.keys()].find((id) => monkeyWorld.players.get(id)?.profileId === state.account?.id)) || {}), profileId: state.account?.id, username: state.account?.username || 'You', platform:state.account?.platform || (LOCAL_MOBILE_DEVICE ? 'mobile' : 'pc'), skin: currentSkin(), aura:currentAura(), banner:currentBanner(), equippedTitle: currentTitle(), titleStyle: currentTitleStyle(), nameStyle: currentNameStyle(), level: state.account?.level || 1, clan: state.account?.clan, ranked: state.account?.ranked, x: monkeyWorld.x, y: monkeyWorld.y, direction: monkeyWorld.direction, moving: monkeyWorld.moving, emoteId:monkeyWorld.localEmote?.id||'', emoteStartedAt:monkeyWorld.localEmote?.startedAt||0, emoteUntil:monkeyWorld.localEmote?.until||0 });
         players.sort((first, second) => first.y - second.y);
-        const phase = monkeyWorldPhase();
         const worldEvent = window.FlappyWorldEvents?.current?.() || null;
+        const normalPhase = monkeyWorldPhase();
+        const eventNight = ['firework_festival', 'dance_party'].includes(worldEvent?.type);
+        const phase = eventNight
+            ? { ...normalPhase, name:'EVENT NIGHT', color: worldEvent.type === 'dance_party' ? 'rgba(24,4,54,.48)' : 'rgba(3,8,31,.56)' }
+            : normalPhase;
         const interior = monkeyWorld.currentInterior ? {
             id: monkeyWorld.currentInterior,
             x: monkeyWorld.interiorX,
@@ -2698,7 +2752,7 @@
         const emoteWheelOpen = Boolean(document.getElementById('mwEmoteWheel')?.classList.contains('open'));
         const blockingWorldMenu = externalWorldMenuOpen || worldBuildingMenuOpen || emoteWheelOpen;
         if(monkeyWorld.localEmote&&(Math.abs(dx)>.18||Math.abs(dy)>.18))cancelLocalWorldEmote(true);
-        const canWalk = !monkeyWorld.pausedForMenu && !blockingWorldMenu && !monkeyWorld.localEmote;
+        const canWalk = !monkeyWorld.pausedForMenu && !blockingWorldMenu && !monkeyWorld.localEmote && !monkeyWorld.eventRewardOpen;
         monkeyWorld.moving = Boolean((dx || dy) && canWalk);
         if (monkeyWorld.moving) {
             dx /= length; dy /= length;
@@ -4167,8 +4221,9 @@
         } catch (error) {
             console.error('Unable to apply online entitlements:', error);
         }
+        let newlyAppliedGrantCount = 0;
         try {
-            for (const grant of pendingGrants) applyPendingGrant(grant);
+            for (const grant of pendingGrants) newlyAppliedGrantCount += applyPendingGrant(grant) ? 1 : 0;
         } finally {
             if (batchGrantUpdates) {
                 // Hundreds of synchronous localStorage writes were the last
@@ -4204,9 +4259,11 @@
                     window.__flappyCollectionBatchDirty = false;
                     if (typeof refreshInventoryMenu === 'function' && document.getElementById('inventoryMenu')?.classList.contains('open')) refreshInventoryMenu();
                     if (typeof refreshShopGrid === 'function' && document.getElementById('shopMenu')?.classList.contains('open')) refreshShopGrid();
-                    window.dispatchEvent(new CustomEvent('flappy-collection-changed', { detail:{ source:'owner-grant-batch', count:pendingGrants.length } }));
+                    window.dispatchEvent(new CustomEvent('flappy-collection-changed', { detail:{ source:'owner-grant-batch', count:newlyAppliedGrantCount } }));
                 }
-                showToast(`${pendingGrants.length.toLocaleString()} collection items applied.`);
+                // Collection synchronization is an expected background task.
+                // Do not interrupt gameplay with a toast every time the server
+                // confirms already-owned Control Panel items.
             }
         }
     }
@@ -4215,7 +4272,7 @@
         const marker = `flappyOnlineGrant:${grant.id}`;
         if (localStorage.getItem(marker) === 'applied' || activeAppliedGrantIds?.has(String(grant.id || ''))) {
             queueGrantClaim(grant.id);
-            return;
+            return false;
         }
         try {
             const removing = grant.operation === 'remove';
@@ -4274,8 +4331,10 @@
             if (window.__flappyBatchingCollectionUpdates !== true) {
                 showToast(`Owner ${removing ? 'removed' : 'sent'}: ${grant.label}${grant.amount > 1 ? ` ×${grant.amount}` : ''}`);
             }
+            return true;
         } catch (error) {
             showToast(`Could not apply owner account change: ${error.message}`, true);
+            return false;
         }
     }
 
@@ -4744,6 +4803,8 @@
         } else if (message.type === 'account_deleted') {
             closeDangerModal();
             clearLocalProgress({ keepSession: false, deleteAccount: true });
+        } else if (message.type === 'authorized_cheat_state') {
+            window.FlappyControlDeckRuntime?.applyAuthorizedState?.(message.state || {});
         } else if (message.type === 'grant_received') {
             persistProfile(message.account);
         } else if (message.type === 'grant_sent') {
@@ -9305,6 +9366,7 @@
         localPlayer: () => ({
             profileId:state.account?.id || '', username:state.account?.username || 'You',
             x:monkeyWorld.x, y:monkeyWorld.y, direction:monkeyWorld.direction,
+            moving:monkeyWorld.moving,
             skin:currentSkin(), aura:currentAura(), banner:currentBanner(), equippedTitle:currentTitle(), titleStyle:currentTitleStyle(), nameStyle:currentNameStyle()
         }),
         serverOffset: () => state.serverOffset,
@@ -9320,6 +9382,21 @@
             monkeyWorld.cameraY = Math.max(0, Number(y) - innerHeight / 2);
         },
         toast: showToast,
+        clearMovement: () => {
+            monkeyWorld.keys.clear();
+            monkeyWorld.touchX = 0;
+            monkeyWorld.touchY = 0;
+            monkeyWorld.moving = false;
+            if (elements.mwTouchKnob) elements.mwTouchKnob.style.transform = 'translate(0px, 0px)';
+        },
+        pauseMovement: (paused) => {
+            monkeyWorld.eventRewardOpen = Boolean(paused);
+            monkeyWorld.keys.clear();
+            monkeyWorld.touchX = 0;
+            monkeyWorld.touchY = 0;
+            monkeyWorld.moving = false;
+            if (elements.mwTouchKnob) elements.mwTouchKnob.style.transform = 'translate(0px, 0px)';
+        },
         persistProfile
     });
     window.setInterval(renderLiveEvent, 1000);

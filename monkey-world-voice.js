@@ -14,6 +14,10 @@
     let controllerPtt = false;
     let previousDpadDown = false;
     let statusMessage = '';
+    let audioContext = null;
+    let localMeter = null;
+    let localVoiceLevel = 0;
+    let voiceMeterFrame = 0;
 
     if (typeof shared.voiceChatEnabled !== 'boolean') shared.voiceChatEnabled = false;
     if (typeof shared.voiceMicMuted !== 'boolean') shared.voiceMicMuted = false;
@@ -67,6 +71,42 @@
         renderUi();
     }
 
+    function createVoiceMeter(stream) {
+        if (!stream || !window.AudioContext && !window.webkitAudioContext) return null;
+        try {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            audioContext ||= new AudioContextClass();
+            audioContext.resume?.().catch(() => {});
+            const source = audioContext.createMediaStreamSource(stream);
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            analyser.smoothingTimeConstant = .72;
+            source.connect(analyser);
+            return { source, analyser, samples:new Uint8Array(analyser.fftSize), level:0 };
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function sampleVoiceMeter(meter) {
+        if (!meter?.analyser) return 0;
+        meter.analyser.getByteTimeDomainData(meter.samples);
+        let energy = 0;
+        for (const value of meter.samples) {
+            const normalized = (value - 128) / 128;
+            energy += normalized * normalized;
+        }
+        const rms = Math.sqrt(energy / meter.samples.length);
+        meter.level = Math.max(rms, meter.level * .78);
+        return meter.level;
+    }
+
+    function pollVoiceMeters() {
+        voiceMeterFrame = requestAnimationFrame(pollVoiceMeters);
+        localVoiceLevel = localTrackShouldTransmit() ? sampleVoiceMeter(localMeter) : 0;
+        for (const entry of peers.values()) entry.voiceLevel = mutedPlayers.has(entry.id) ? 0 : sampleVoiceMeter(entry.meter);
+    }
+
     async function ensureLocalStream() {
         if (localStream?.active) return localStream;
         if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) throw new Error('Voice chat is not supported by this browser or desktop build.');
@@ -74,6 +114,7 @@
             audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1 },
             video:false
         });
+        localMeter = createVoiceMeter(localStream);
         syncLocalTrack();
         return localStream;
     }
@@ -84,6 +125,8 @@
         if (!entry) return;
         peers.delete(id);
         try { if (notify) sendSignal(id, { kind:'hangup' }); } catch (_) {}
+        clearTimeout(entry.connectTimer);
+        try { entry.meter?.source?.disconnect(); } catch (_) {}
         try { entry.pc.onicecandidate = null; entry.pc.ontrack = null; entry.pc.close(); } catch (_) {}
         entry.audio?.remove();
         renderUi();
@@ -96,6 +139,9 @@
     function stopLocalStream() {
         localStream?.getTracks().forEach((track) => track.stop());
         localStream = null;
+        try { localMeter?.source?.disconnect(); } catch (_) {}
+        localMeter = null;
+        localVoiceLevel = 0;
     }
 
     async function setVoiceEnabled(enabled, options = {}) {
@@ -141,8 +187,13 @@
             return existing;
         }
         const pc = new RTCPeerConnection({
-            iceServers:[{ urls:'stun:stun.l.google.com:19302' }, { urls:'stun:stun1.l.google.com:19302' }],
-            bundlePolicy:'max-bundle'
+            iceServers:[
+                { urls:'stun:stun.l.google.com:19302' },
+                { urls:'stun:stun1.l.google.com:19302' },
+                { urls:'stun:stun.cloudflare.com:3478' }
+            ],
+            bundlePolicy:'max-bundle',
+            iceCandidatePoolSize:4
         });
         const audio = document.createElement('audio');
         audio.autoplay = true;
@@ -151,7 +202,7 @@
         audio.dataset.voiceProfile = id;
         audio.setAttribute('aria-hidden', 'true');
         document.body.append(audio);
-        const entry = { id, username, pc, audio, pendingIce:[], makingOffer:false };
+        const entry = { id, username, pc, audio, pendingIce:[], makingOffer:false, meter:null, voiceLevel:0, connectTimer:0 };
         peers.set(id, entry);
         localStream.getAudioTracks().forEach((track) => pc.addTrack(track, localStream));
         pc.onicecandidate = (event) => {
@@ -160,15 +211,32 @@
             sendSignal(id, { kind:'ice', candidate:candidate.candidate, sdpMid:candidate.sdpMid || '', sdpMLineIndex:candidate.sdpMLineIndex || 0 });
         };
         pc.ontrack = (event) => {
-            audio.srcObject = event.streams[0] || new MediaStream([event.track]);
+            const remoteStream = event.streams[0] || new MediaStream([event.track]);
+            audio.srcObject = remoteStream;
+            try { entry.meter?.source?.disconnect(); } catch (_) {}
+            entry.meter = createVoiceMeter(remoteStream);
             audio.muted = mutedPlayers.has(id);
             audio.play().catch(() => {});
             renderUi();
         };
         pc.onconnectionstatechange = () => {
-            if (['failed', 'closed'].includes(pc.connectionState)) closePeer(id);
-            else renderUi();
+            if (pc.connectionState === 'connected') clearTimeout(entry.connectTimer);
+            if (['failed', 'closed'].includes(pc.connectionState)) {
+                closePeer(id);
+                if (joined && shared.voiceChatEnabled) setTimeout(reconcilePeers, 900);
+            } else renderUi();
         };
+        pc.oniceconnectionstatechange = () => {
+            if (pc.iceConnectionState === 'failed') {
+                try { pc.restartIce(); } catch (_) {}
+                if (localId.localeCompare(id) < 0) makeOffer(entry, true);
+            }
+        };
+        entry.connectTimer = setTimeout(() => {
+            if (peers.get(id) !== entry || pc.connectionState === 'connected') return;
+            closePeer(id, true);
+            if (joined && shared.voiceChatEnabled) setTimeout(reconcilePeers, 900);
+        }, 12_000);
         return entry;
     }
 
@@ -178,11 +246,11 @@
         }
     }
 
-    async function makeOffer(entry) {
+    async function makeOffer(entry, iceRestart = false) {
         if (!entry || entry.makingOffer || entry.pc.signalingState !== 'stable') return;
         entry.makingOffer = true;
         try {
-            const offer = await entry.pc.createOffer();
+            const offer = await entry.pc.createOffer(iceRestart ? { iceRestart:true } : undefined);
             await entry.pc.setLocalDescription(offer);
             sendSignal(entry.id, { kind:'offer', sdp:entry.pc.localDescription.sdp });
         } catch (_) {
@@ -289,7 +357,7 @@
         }
         if (settingStatus) settingStatus.textContent = statusMessage || (shared.voiceChatEnabled ? 'Connected voice uses proximity audio. Push to Talk: ' + pttLabel + '.' : 'Off by default. No microphone is requested until you enable it.');
         if (button) {
-            button.textContent = !shared.voiceChatEnabled ? 'Voice Off' : shared.voiceMicMuted ? 'Mic Muted' : shared.voiceMode === 'push-to-talk' ? 'Hold ' + pttLabel + ' to Talk' : 'Voice On';
+            button.textContent = !shared.voiceChatEnabled ? 'Voice Off' : shared.voiceMicMuted ? 'Mic Muted' : 'Voice On';
             button.classList.toggle('mw-voice-live', Boolean(shared.voiceChatEnabled));
         }
         if (!panel) return;
@@ -311,7 +379,7 @@
             '#mwVoiceButton.mw-voice-live{border-color:#70eaa7;background:linear-gradient(180deg,#267048,#174d34);box-shadow:0 0 16px rgba(73,230,142,.22)}',
             '.voice-settings-select{width:100%;min-height:38px;margin-top:5px;padding:7px 10px;border:1px solid rgba(111,219,157,.38);border-radius:9px;color:#f3fff7;background:#0b3528}',
             '#voiceChatSettingStatus{margin:9px 0 0;color:#bcd5c5;font-size:11px;line-height:1.45}',
-            '#mwVoicePanel{position:fixed;z-index:2147482200;top:92px;right:22px;width:min(300px,calc(100vw - 28px));padding:12px;border:1px solid rgba(119,226,164,.48);border-radius:14px;color:#effff5;background:rgba(5,37,29,.97);box-shadow:0 18px 48px rgba(0,0,0,.48)}',
+            '#mwVoicePanel{position:fixed;z-index:2147482200;top:auto;right:18px;bottom:min(476px,calc(100dvh - 150px));width:min(300px,calc(100vw - 28px));padding:12px;border:1px solid rgba(119,226,164,.48);border-radius:14px;color:#effff5;background:rgba(5,37,29,.97);box-shadow:0 18px 48px rgba(0,0,0,.48)}',
             '#mwVoicePanel[hidden]{display:none}.mw-voice-head{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-bottom:9px}.mw-voice-head strong{color:#ffe886;font-size:13px;letter-spacing:.04em}.mw-voice-head button{min-width:34px!important;min-height:30px!important;padding:3px 8px!important}',
             '.mw-voice-player{display:flex!important;align-items:center!important;justify-content:space-between!important;width:100%!important;min-height:48px!important;margin:6px 0!important;padding:8px 10px!important;text-align:left!important}.mw-voice-player span{display:grid;gap:2px}.mw-voice-player small{color:#9fc8ae}.mw-voice-player b{color:#ffe377}.mw-voice-player.muted{opacity:.68}.mw-voice-empty{margin:8px 2px;color:#a8c5b2;font-size:11px}',
             '.mw-voice-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.mw-voice-actions button{min-height:35px!important;font-size:11px!important}@media(max-width:800px){#mwVoicePanel{top:78px;right:10px}.mw-top-actions #mwVoiceButton{order:4}}'
@@ -401,6 +469,20 @@
         if (joined && peers.size) updateSpatialAudio();
     }, 250);
 
+    window.flappyMonkeyWorldVoiceActivity = (profileId) => {
+        const id = String(profileId || '').toUpperCase();
+        if (!id || !shared.voiceChatEnabled) return { connected:false, speaking:false, level:0, muted:false };
+        if (id === localId) {
+            const level = localVoiceLevel;
+            return { connected:Boolean(localStream?.active), speaking:localTrackShouldTransmit() && level > .035, level, muted:Boolean(shared.voiceMicMuted) };
+        }
+        const entry = peers.get(id);
+        const muted = mutedPlayers.has(id);
+        const connected = entry?.pc?.connectionState === 'connected' || ['connected','completed'].includes(entry?.pc?.iceConnectionState);
+        const level = muted ? 0 : Number(entry?.voiceLevel) || 0;
+        return { connected, speaking:connected && level > .028, level, muted };
+    };
+
     let voicePadFrame = 0;
     function pollVoiceGamepad() {
         voicePadFrame = 0;
@@ -432,6 +514,7 @@
     }
 
     installUi();
+    if (!voiceMeterFrame) voiceMeterFrame = requestAnimationFrame(pollVoiceMeters);
     const context = window.flappyMonkeyWorldVoiceContext?.();
     if (context) {
         joined = Boolean(context.joined);

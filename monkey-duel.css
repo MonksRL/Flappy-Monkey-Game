@@ -67,3 +67,28 @@ body.monkey-duel-active #mpConnectShortcut,body.monkey-duel-active #mpFriendsSho
     .md-content{inset:94px 0 0;padding:12px}
     .md-topbar{top:8px;width:calc(100% - 16px);min-height:70px}
 }
+
+/* Fight HUD stays inside the safe area below the header and away from global
+   live-feed controls. These overrides also replace the original oversized
+   reaction wheel with a compact, stable glass control. */
+.md-fight-ui{inset:112px 30px 12px}
+.md-versus{max-width:1180px;margin:0 auto;gap:310px}
+.md-fighter-card{width:min(330px,31vw);padding:12px 15px;border-color:rgba(127,245,213,.55);background:linear-gradient(145deg,rgba(3,31,34,.94),rgba(10,24,47,.91))}
+.md-fighter-title{height:auto;min-height:16px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.md-round-score{top:0;min-width:220px}
+.md-ability-chip{left:14px;bottom:8px;box-shadow:0 12px 34px rgba(0,0,0,.3)}
+.md-controls{bottom:6px;max-width:calc(100% - 440px);white-space:nowrap}
+.md-reaction-wheel{width:264px;height:264px;border:1px solid rgba(255,227,106,.76);background:radial-gradient(circle at 50% 48%,rgba(22,63,66,.98),rgba(4,18,30,.97) 66%);box-shadow:0 24px 90px rgba(0,0,0,.54),0 0 45px rgba(82,255,214,.2);backdrop-filter:blur(18px)}
+.md-reaction-wheel button{width:58px;height:58px;border:1px solid rgba(116,238,204,.66);background:linear-gradient(145deg,#155f50,#112942);box-shadow:0 8px 24px rgba(0,0,0,.32);transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease}
+.md-reaction-wheel button:hover{transform:scale(1.12);border-color:#ffe36a;box-shadow:0 0 24px rgba(255,227,106,.32)}
+.md-reaction-wheel button span{display:block;filter:drop-shadow(0 3px 5px rgba(0,0,0,.35))}
+.md-reaction-wheel button:nth-of-type(1){left:103px;top:8px}
+.md-reaction-wheel button:nth-of-type(2){right:15px;top:55px}
+.md-reaction-wheel button:nth-of-type(3){right:18px;bottom:47px}
+.md-reaction-wheel button:nth-of-type(4){left:103px;bottom:8px}
+.md-reaction-wheel button:nth-of-type(5){left:18px;bottom:47px}
+.md-reaction-wheel button:nth-of-type(6){left:15px;top:55px}
+.md-reaction-center{position:absolute;inset:82px 68px;display:grid;place-content:center;text-align:center;border:1px solid rgba(255,227,106,.35);border-radius:50%;background:rgba(6,26,37,.82);pointer-events:none}
+.md-reaction-center b{color:#fff08b;font-size:11px;letter-spacing:.1em}
+.md-reaction-center small{margin-top:4px;color:#a7d6cc;font-size:8px;white-space:nowrap}
+@media(max-width:1050px){.md-fight-ui{inset:102px 12px 10px}.md-versus{gap:220px}.md-fighter-card{width:min(300px,34vw)}.md-controls{display:none}}
