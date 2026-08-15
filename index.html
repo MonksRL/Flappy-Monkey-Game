@@ -3524,7 +3524,7 @@ if (customUsername && customUsername.trim() && profilePic && !localStorage.getIt
     { name: 'Default', file: 'Default Monkey.png', unlockScore: 0, unlocked: true },
     { name:'Index Monkey', file:'Index Monkey.png', unlocked:localStorage.getItem('collectionIndexRewardClaimed') === 'true', unlockType:'collectionIndexReward', unlockText:'Complete and claim the Collection Index', linkedTitle:'Monkey Index Master', menuBg:'index-monkey-bg.png', rarity:'mythic', indexReward:true },
     { name: 'Developer Monkey', file: 'Developer Monkey.png', unlocked: false, unlockType: 'developerGrant', grantOnly: true, menuBg: 'developer-bg.png', rarity: 'developer' },
-    { name: 'Connected Monkey', file: 'Connected Monkey.png', unlocked: false, unlockType: 'discordLink', unlockText: 'Connect Discord in Settings and join the Flappy Monkey community', grantOnly: true, menuBg: 'connected-monkey-bg.png', rarity: 'icon' },
+    { name: 'Connected Monkey', file: 'Connected Monkey.png', unlocked: false, unlockType: 'discordLink', unlockText: 'Connect Discord in Settings to verify your Flappy Monkey server membership', grantOnly: true, menuBg: 'connected-monkey-bg.png', rarity: 'epic' },
     { name: 'Jungle Monkey', file: 'Jungle Monkey.png', unlocked: false, unlockType: 'redeem', unlockText: 'Redeem code FLAPPY MONKEY', grantOnly: true, menuBg: 'jungle-bg.png', rarity: 'epic' },
     { name: 'Monkey King', file: 'Monkey King.png', unlocked: false, unlockType: 'rankedSeason1', unlockText: 'Season 1 Ranked Skin — unlockable by reaching Monkey King rank', grantOnly: true, menuBg: 'monkeyking-bg.png', rarity: 'mythic' },
     { name: 'Birthday Bash Monkey', file: 'Birthday Bash Monkey.png', unlocked: false, unlockType: 'anniversary', unlockText: 'Visit during Flappy Monkey’s annual Birthday Bash', grantOnly: true, menuBg: 'birthday-bash-bg.png', rarity: 'mythic' },
@@ -7652,6 +7652,7 @@ function getSkinUnlockSource(skin) {
     if (skin.file === 'Default Monkey.png' || skin.name === 'Default') return 'Starter skin — available from the beginning.';
     if (skin.unlockType === 'collectionIndexReward') return 'Completed every eligible entry in the Collection Index and claimed its master reward.';
     if (skin.unlockType === 'developerGrant') return 'Owned by the creator or granted by the game owner.';
+    if (skin.unlockType === 'discordLink') return skin.unlockText || 'Connect Discord from the Settings menu.';
     if (skin.unlockType === 'redeem') return skin.unlockText || 'Redeemed from an exclusive code.';
     if (skin.unlockType === 'rankedSeason1') return 'Reached Monkey King rank in Season 1 Ranked.';
     if (skin.unlockType === 'anniversary') return 'Visited during the server-authorized annual Birthday Bash, beginning March 21 at 10:00 PM Eastern.';
@@ -7868,6 +7869,8 @@ function refreshSkinMenu() {
                 div.innerHTML += `<div class="title-unlock-main">Create a profile</div><div class="title-unlock-extra" style="color:#ff6666;">(Unlockable by setting a custom username & profile picture)</div>`;
             } else if (skin.unlockType === 'collectionIndexReward') {
                 div.innerHTML += `<div class="title-unlock-main">Collection Index Master Reward</div><div class="title-unlock-extra" style="color:#7fffd1;">Complete every eligible Index entry, then claim the reward from the lobby book.</div>`;
+            } else if (skin.unlockType === 'discordLink') {
+                div.innerHTML += `<div class="title-unlock-main">Discord Community Reward</div><div class="title-unlock-extra" style="color:#b992ff;">${skin.unlockText || 'Connect Discord from Settings to unlock this Epic skin.'}</div>`;
             } else if (skin.unlockType === 'developerGrant') {
                 div.innerHTML += `<div class="title-unlock-main">Developer-only skin</div><div class="title-unlock-extra" style="color:#59f4ff;">(Automatically owned by the creator, or granted to an account by the owner.)</div>`;
             } else if (skin.unlockType === 'redeem') {
