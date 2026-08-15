@@ -37,7 +37,7 @@ except ImportError:  # The app remains usable; remote avatars use initials.
 
 
 APP_NAME = "Flappy Monkey Control Panel"
-APP_VERSION = "1.9.1"
+APP_VERSION = "1.9.2"
 DEFAULT_SERVER = "https://flappy-monkey-server.onrender.com"
 DEFAULT_INVITE = "https://discord.gg/HCmAVTNtNe"
 ALLOWED_ROLES = (
@@ -1186,7 +1186,7 @@ class ControlDeckApp(tk.Tk):
             pass
         self._configure_widget_styles()
         try:
-            icon_path = resource_path("monkey-192.png")
+            icon_path = resource_path("Developer Monkey.png")
             self._window_icon = tk.PhotoImage(file=str(icon_path))
             self.iconphoto(True, self._window_icon)
         except tk.TclError:
@@ -1775,10 +1775,56 @@ class ControlDeckApp(tk.Tk):
         # the right inset this expanding frame painted over the card's right
         # edge, leaving the custom accent outline visibly incomplete.
         profile_text.pack(side="left", fill="x", expand=True, padx=(0, 10), pady=10)
-        tk.Label(profile_text, text=self.profile_name(), fg=COLORS["text"], bg=COLORS["panel"], font=("Segoe UI", 10, "bold"), anchor="w").pack(fill="x")
+        sidebar_name_label = tk.Label(profile_text, text=self.profile_name(), fg=COLORS["text"], bg=COLORS["panel"], font=("Segoe UI", 10, "bold"), anchor="w")
+        sidebar_name_label.pack(fill="x")
         self.sidebar_role_label = tk.Label(profile_text, text=self.main_role_name(), fg=COLORS["teal"], bg=COLORS["panel"], font=("Segoe UI", 8, "bold"), anchor="w", wraplength=145)
         self.sidebar_role_label.pack(fill="x")
-        profile_card.bind("<Button-1>", lambda _event: self.show_page("profile"))
+        def open_sidebar_profile(_event=None) -> None:
+            self.show_page("profile")
+
+        profile_hover_widgets = (profile_card, profile_card.surface_canvas, self.sidebar_avatar, profile_text, sidebar_name_label, self.sidebar_role_label)
+        profile_hover_after = {"id": None}
+
+        def paint_sidebar_profile(hovered: bool) -> None:
+            target_surface = blend_color(COLORS["panel"], COLORS["purple"], .16) if hovered else COLORS["panel"]
+            target_border = COLORS["teal"] if hovered else self.profile_accent()
+            profile_card.surface_color = target_surface
+            profile_card.border_color = target_border
+            profile_card._redraw_surface()
+            for widget in (self.sidebar_avatar, profile_text, sidebar_name_label, self.sidebar_role_label):
+                if widget.winfo_exists():
+                    widget.configure(bg=target_surface)
+
+        def enter_sidebar_profile(_event=None) -> None:
+            pending = profile_hover_after.get("id")
+            if pending:
+                try:
+                    profile_card.after_cancel(pending)
+                except tk.TclError:
+                    pass
+                profile_hover_after["id"] = None
+            paint_sidebar_profile(True)
+
+        def leave_sidebar_profile(_event=None) -> None:
+            def settle_hover() -> None:
+                profile_hover_after["id"] = None
+                if not profile_card.winfo_exists():
+                    return
+                pointer_x, pointer_y = profile_card.winfo_pointerxy()
+                left, top = profile_card.winfo_rootx(), profile_card.winfo_rooty()
+                inside = left <= pointer_x < left + profile_card.winfo_width() and top <= pointer_y < top + profile_card.winfo_height()
+                paint_sidebar_profile(inside)
+
+            profile_hover_after["id"] = profile_card.after(18, settle_hover)
+
+        # A click normally lands on one of the card's child widgets rather than
+        # the rounded panel itself. Bind every visible part so the whole identity
+        # card behaves like one dependable navigation control.
+        for profile_widget in profile_hover_widgets:
+            profile_widget.configure(cursor="hand2")
+            profile_widget.bind("<Button-1>", open_sidebar_profile)
+            profile_widget.bind("<Enter>", enter_sidebar_profile)
+            profile_widget.bind("<Leave>", leave_sidebar_profile)
 
         header = tk.Frame(main, bg=COLORS["bg2"])
         header.pack(fill="x", padx=24, pady=(20, 10))
@@ -1918,7 +1964,7 @@ class ControlDeckApp(tk.Tk):
         total = int(owned.get("totalPermanent", 0) or 0)
         collection_detail = f"{int(owned.get('titles', 0) or 0):,} titles · {int(owned.get('badges', 0) or 0):,} badges"
         if total:
-            collection_detail += f" · {total:,} total"
+            collection_detail += f" · {total:,} permanent items"
         return [
             ("MY ACCOUNT", str(account.get("username", "Loading…")), str(account.get("id", "Automatically linked through Discord"))),
             ("LEVEL", str(account.get("level", "—")), f"{int(account.get('totalXP', 0) or 0):,} total XP"),

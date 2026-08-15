@@ -37,7 +37,7 @@ if ($LASTEXITCODE -ne 0) { throw "The Python build dependencies could not be ins
 
 $dataArguments = @(
     "--add-data", "$(Join-Path $repositoryRoot 'Default Monkey.png');.",
-    "--add-data", "$(Join-Path $repositoryRoot 'monkey-192.png');.",
+    "--add-data", "$(Join-Path $repositoryRoot 'Developer Monkey.png');.",
     "--add-data", "$(Join-Path $PSScriptRoot 'assets\control-panel-icon-atlas.png');assets",
     "--add-data", "$(Join-Path $PSScriptRoot 'assets\control-panel-icon-atlas.json');assets"
 )
@@ -49,7 +49,7 @@ Write-Host "Building the portable Control Panel..." -ForegroundColor Cyan
     --onefile `
     --windowed `
     --name "Flappy Monkey Control Panel" `
-    --icon (Join-Path $repositoryRoot "icon.ico") `
+    --icon (Join-Path $PSScriptRoot "assets\developer-monkey-control-panel.ico") `
     --distpath $outputDirectory `
     --workpath $workDirectory `
     --specpath $specDirectory `
