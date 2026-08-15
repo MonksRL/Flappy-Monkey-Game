@@ -4686,7 +4686,13 @@ titles.forEach(title => {
             }
         }
 
-        function updateXPBar() {
+        function updateXPBar(options = {}) {
+            const {
+                persist = true,
+                updateIdentity = true,
+                dispatch = true,
+                source = 'local'
+            } = options || {};
             const info = getLevelAndProgress();
             const percent = Math.min(100, (info.progress / info.required) * 100);
             document.getElementById('xpLabel').textContent = `Level ${info.level} • ${info.progress} / ${info.required} XP`;
@@ -4695,11 +4701,13 @@ titles.forEach(title => {
             const profileBar = document.getElementById('xpBarProfile');
             if (profileLevel) profileLevel.innerHTML = `Level <span style="color:#ffeb3b">${info.level}</span> • ${info.progress} / ${info.required} XP`;
             if (profileBar) profileBar.style.width = `${percent}%`;
-            localStorage.setItem('monkeyXP', totalXP);
+            if (persist) localStorage.setItem('monkeyXP', totalXP);
             if (info.level > prevLevel) createConfetti();
             prevLevel = info.level;
-            if (typeof updateUsernameDisplay === 'function') updateUsernameDisplay();
-            window.dispatchEvent(new CustomEvent('flappy-xp-changed', { detail: { totalXP, ...info } }));
+            // Reapplying the full player banner/name treatment is noticeably
+            // expensive and is only needed when the displayed level changes.
+            if (updateIdentity && typeof updateUsernameDisplay === 'function') updateUsernameDisplay();
+            if (dispatch) window.dispatchEvent(new CustomEvent('flappy-xp-changed', { detail: { totalXP, ...info, source } }));
         }
 
         const modes = [
@@ -5936,24 +5944,72 @@ function getHighScoreKey(modeId) {
         }
 
         function checkScoreUnlocks() {
-            monkeySkins.forEach(skin => {
-                if (skin.unlocked || !skin.unlockScore) return;
-                if (skin.modeRestricted && selectedMode !== skin.modeRestricted) return;
-                if (highScore >= skin.unlockScore) {
-                    skin.unlocked = true;
-                    saveUnlockedSkins();
-                    refreshSkinMenu();
-                    let msg = `${skin.name} Monkey unlocked!`;
-                    if (skin.linkedTitle) {
-                        const title = titles.find(t => t.name === skin.linkedTitle);
-                        if (title) title.unlocked = true;
-                        msg += ` & ${skin.linkedTitle} title!`;
-                    }
-                    pendingUnlocks.push(msg);
-                    if (gameOverFlag || victory) showNextUnlockPopup();
-                }
+            const newlyUnlocked = monkeySkins.filter((skin) => {
+                if (skin.unlocked || !skin.unlockScore) return false;
+                if (skin.modeRestricted && selectedMode !== skin.modeRestricted) return false;
+                return highScore >= skin.unlockScore;
             });
+            if (!newlyUnlocked.length) return;
+
+            newlyUnlocked.forEach((skin) => {
+                skin.unlocked = true;
+                let msg = `${skin.name} Monkey unlocked!`;
+                if (skin.linkedTitle) {
+                    const title = titles.find(t => t.name === skin.linkedTitle);
+                    if (title) title.unlocked = true;
+                    msg += ` & ${skin.linkedTitle} title!`;
+                }
+                pendingUnlocks.push(msg);
+            });
+            // A threshold sweep is one transaction. Saving and rebuilding the
+            // skin menu once avoids a separate full render for every reward.
+            saveUnlockedSkins();
+            refreshSkinMenu();
+            refreshTitlesMenu();
+            if (gameOverFlag || victory) showNextUnlockPopup();
         }
+
+        let pipeProgressFlushTimer = 0;
+        let pipeProgressNeedsLevelUnlockCheck = false;
+        let pipeProgressNeedsScoreUnlockCheck = false;
+        const pendingPipeHighScoreWrites = new Map();
+
+        function flushPipeProgress() {
+            pipeProgressFlushTimer = 0;
+            localStorage.setItem('totalPipesPassed', String(totalPipesPassed));
+            localStorage.setItem('monkeyXP', String(totalXP));
+            pendingPipeHighScoreWrites.forEach((value, key) => localStorage.setItem(key, String(value)));
+            pendingPipeHighScoreWrites.clear();
+
+            const currentLevel = getLevelAndProgress().level;
+            const levelChanged = currentLevel !== prevLevel;
+            updateXPBar({ persist:false, updateIdentity:levelChanged, source:'base-game-pipe' });
+            if (pipeProgressNeedsLevelUnlockCheck) checkLevelUnlocks();
+            if (pipeProgressNeedsScoreUnlockCheck) checkScoreUnlocks();
+            pipeProgressNeedsLevelUnlockCheck = false;
+            pipeProgressNeedsScoreUnlockCheck = false;
+        }
+
+        function queuePipeProgressFlush({ levelChanged = false, scoreChanged = false } = {}) {
+            pipeProgressNeedsLevelUnlockCheck ||= Boolean(levelChanged);
+            pipeProgressNeedsScoreUnlockCheck ||= Boolean(scoreChanged);
+            if (pipeProgressFlushTimer) return;
+            // Keep storage, profile decoration, unlock scans, and online sync
+            // away from the exact animation frame in which the pipe is crossed.
+            pipeProgressFlushTimer = window.setTimeout(() => {
+                if (typeof window.requestIdleCallback === 'function') {
+                    window.requestIdleCallback(flushPipeProgress, { timeout:220 });
+                } else {
+                    flushPipeProgress();
+                }
+            }, 90);
+        }
+
+        window.addEventListener('pagehide', () => {
+            if (!pipeProgressFlushTimer && !pendingPipeHighScoreWrites.size) return;
+            clearTimeout(pipeProgressFlushTimer);
+            flushPipeProgress();
+        });
         function syncTitleUnlocks() {
     monkeySkins.forEach(skin => {
         if (skin.unlocked && skin.linkedTitle) {
@@ -6180,6 +6236,7 @@ function checkProfileUnlocks() {
                 const bottom = top + p.gap;
                 if (!p.passed && p.x + 68 < monkey.x) {
                     p.passed = true;
+                    const levelBeforePipe = getLevelAndProgress().level;
                     const earnedScore = (pipeScoreBonusBase + pipeScoreBonus) * (hasGlobalLiveEvent('score_rush') ? 2 : 1) * controlDeckNumber('score_multiplier', 1);
                     score += earnedScore;
                     // Mastery measures real play, not boosted or event-multiplied score.
@@ -6189,20 +6246,20 @@ function checkProfileUnlocks() {
                     totalPipesPassed++;
                     pipeStreakNoDamage++;
                     updateDailyQuestProgress('survivepipes');
-                    localStorage.setItem('totalPipesPassed', totalPipesPassed);
                     updateDailyQuestProgress('pipes', 1);
                     const currentMilestone = Math.floor(score / 50) * 50;
                     if (currentMilestone > lastMilestone) {
                         addMonkeyXP(50);
                         lastMilestone = currentMilestone;
                     }
-                    updateXPBar();
-                    checkLevelUnlocks();
+                    const levelChanged = getLevelAndProgress().level !== levelBeforePipe;
+                    let scoreChanged = false;
                     if (!hasGlobalLiveEvent('score_rush') && score > highScore) {
                         highScore = score;
-                        localStorage.setItem(getHighScoreKey(selectedMode), highScore);
+                        scoreChanged = true;
+                        pendingPipeHighScoreWrites.set(getHighScoreKey(selectedMode), highScore);
                     }
-                    if (!hasGlobalLiveEvent('score_rush')) checkScoreUnlocks();
+                    queuePipeProgressFlush({ levelChanged, scoreChanged });
                 }
                 const mr = monkey.x + monkey.size;
                 const mb = monkey.y + monkey.size;
@@ -10145,6 +10202,25 @@ let lastDailyReset = localStorage.getItem('lastDailyReset') || '0';
 let dailyRewardClaimed = localStorage.getItem('dailyRewardClaimed') === 'true';
 let dailyGamesToday = parseInt(localStorage.getItem('dailyGamesToday') || '0', 10);
 let dailyGhostCollected = parseInt(localStorage.getItem('dailyGhostCollected') || '0', 10);   // ← NEW
+let dailyStateHydrated = false;
+let dailyProgressSaveTimer = 0;
+
+function saveDailyProgressSoon() {
+    clearTimeout(dailyProgressSaveTimer);
+    dailyProgressSaveTimer = window.setTimeout(() => {
+        dailyProgressSaveTimer = 0;
+        localStorage.setItem('dailyProgress', JSON.stringify(dailyProgress));
+    }, 120);
+}
+
+function flushDailyProgressSave() {
+    if (!dailyProgressSaveTimer) return;
+    clearTimeout(dailyProgressSaveTimer);
+    dailyProgressSaveTimer = 0;
+    localStorage.setItem('dailyProgress', JSON.stringify(dailyProgress));
+}
+
+window.addEventListener('pagehide', flushDailyProgressSave);
 
 const possibleQuests = [
     { id: 1, text: "Pass 20 pipes today", target: 20, type: "pipes" },
@@ -10227,8 +10303,10 @@ function checkDailyReset() {
         localStorage.setItem('dailyRewardClaimed', 'false');
         localStorage.setItem('dailyGamesToday', '0');
         localStorage.setItem('dailyGhostCollected', '0');   // ← new
-    } else {
-        // load saved data
+        dailyStateHydrated = true;
+    } else if (!dailyStateHydrated) {
+        // Hydrate once per page load. This function is called for every quest
+        // event, so reparsing both JSON blobs on every pipe caused frame drops.
         const savedQuests = localStorage.getItem('dailyQuests');
         const savedProgress = localStorage.getItem('dailyProgress');
         if (savedQuests) dailyQuests = JSON.parse(savedQuests);
@@ -10236,6 +10314,7 @@ function checkDailyReset() {
         dailyRewardClaimed = localStorage.getItem('dailyRewardClaimed') === 'true';
         dailyGamesToday = parseInt(localStorage.getItem('dailyGamesToday') || '0', 10);
         dailyGhostCollected = parseInt(localStorage.getItem('dailyGhostCollected') || '0', 10);
+        dailyStateHydrated = true;
     }
 }
 // ====================== DAILY QUESTS RENDERING (MISSING FUNCTION) ======================
@@ -10310,6 +10389,7 @@ function setupDailyQuestClaim() {
 
 function updateDailyQuestProgress(type, amount = 1) {
     checkDailyReset();
+    let changed = false;
     dailyQuests.forEach(quest => {
         if (quest.type === type) {
             let current = dailyProgress[quest.id] || 0;
@@ -10335,11 +10415,13 @@ function updateDailyQuestProgress(type, amount = 1) {
             } else {
                 current = Math.min(current + amount, quest.target);
             }
-
-            dailyProgress[quest.id] = current;
-            localStorage.setItem('dailyProgress', JSON.stringify(dailyProgress));
+            if (dailyProgress[quest.id] !== current) {
+                dailyProgress[quest.id] = current;
+                changed = true;
+            }
         }
     });
+    if (changed) saveDailyProgressSoon();
 }
 
 // NEW helper for Ghost (call this ONLY once per ghost collected)
