@@ -25,7 +25,7 @@
     <link rel="stylesheet" href="cosmetic-favorites.css">
     <link rel="stylesheet" href="banners-emotes.css?v=20260810-live8">
     <link rel="stylesheet" href="monkey-world-events.css?v=20260811-live4">
-    <link rel="stylesheet" href="monkey-duel.css?v=20260808-live4">
+    <link rel="stylesheet" href="monkey-duel.css?v=20260815-live6">
     <script>
         // Run a final progress wipe before any game variables read localStorage.
         // This prevents late timers from restoring XP, scores, or achievements
@@ -4937,7 +4937,7 @@ function getHighScoreKey(modeId) {
 
         function applyControlDeckMonkeySize() {
             if (!monkey || !Number.isFinite(monkey.size)) return;
-            const nextScale = Math.max(0.5, Math.min(2, controlDeckNumber('monkey_size', 1)));
+            const nextScale = Math.max(0.25, Math.min(4, controlDeckNumber('monkey_size', 1)));
             const nextSize = baseMonkeySize * nextScale;
             if (Math.abs(nextSize - monkey.size) < 0.01) {
                 appliedControlDeckMonkeyScale = nextScale;
@@ -20839,7 +20839,7 @@ applyProfileTheme();
 <script src="mastery-aura-weather.js?v=20260809-live4"></script>
     <script src="banners-emotes.js?v=20260815-live11"></script>
 <script src="monkey-world-events.js?v=20260811-live4"></script>
-    <script src="monkey-duel.js?v=20260811-live5"></script>
+    <script src="monkey-duel.js?v=20260815-live6"></script>
     <script src="multiplayer.js?v=20260815-live21"></script>
 <script src="pwa.js"></script>
 <style id="controller-accessibility-upgrade">
