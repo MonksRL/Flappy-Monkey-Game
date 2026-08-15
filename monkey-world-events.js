@@ -10,6 +10,9 @@
     let images = new Map();
     let slipperyX = 0;
     let slipperyY = 0;
+    let rewardModalOpen = false;
+    let lastDanceStepAt = 0;
+    let lastDancePosition = null;
 
     function escapeHtml(value) {
         return String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' })[character]);
@@ -101,13 +104,26 @@
             board.innerHTML = `<h3>${event.type === 'monkey_pvp' ? 'PvP Kill Leaderboard' : 'Monkeys Still Standing'}</h3>${sorted.map((player,index) => `<div class="mw-event-leader-row" ${window.FlappyBanners?.attributes?.(player.banner || 'skin-default') || ''}><span class="mw-event-place">#${index + 1}</span><span class="mw-event-player-name">${nameMarkup(player)}${titleMarkup(player)}</span><span class="mw-event-score">${event.type === 'monkey_pvp' ? `${player.kills || 0} K` : player.alive ? 'ALIVE' : 'OUT'}</span></div>`).join('')}`;
         }
 
-        actions.classList.remove('mw-event-hidden');
-        if (event.combat && stats?.alive) actions.innerHTML = '<button type="button" data-mw-event-action="attack">⚔️ Swing Sword · SPACE</button>';
-        else if (event.type === 'dance_party') actions.innerHTML = '<button type="button" data-mw-event-action="dance">🕺 Dance · SPACE</button>';
-        else if (event.type === 'snowstorm') actions.innerHTML = '<button type="button" data-mw-event-action="throw_snowball">❄️ Throw Snowball</button><button type="button" data-mw-event-action="build_snowman">⛄ Build Snowman</button>';
-        else if (event.type === 'firework_festival') actions.innerHTML = '<button type="button" data-mw-event-action="firework">🎆 Launch Nearby Firework</button>';
-        else actions.classList.add('mw-event-hidden');
-        actions.querySelectorAll('[data-mw-event-action]').forEach((button) => button.addEventListener('click', () => perform(button.dataset.mwEventAction)));
+        const actionMarkup = event.combat && stats?.alive
+            ? '<button type="button" data-mw-event-action="attack">⚔️ Swing Event Sword · SPACE</button>'
+            : event.type === 'snowstorm'
+                ? '<button type="button" data-mw-event-action="throw_snowball">❄️ Throw Snowball</button><button type="button" data-mw-event-action="build_snowman">⛄ Build Snowman</button>'
+                : event.type === 'firework_festival'
+                    ? '<button type="button" data-mw-event-action="firework">🎆 Launch Nearby Firework</button>'
+                    : '';
+        actions.classList.toggle('mw-event-hidden', !actionMarkup);
+        // Do not replace focused buttons on every server-state paint. Rebuilding
+        // this DOM several times per second made hover/click states flicker and
+        // caused valid clicks to disappear before their pointer-up event.
+        if (actions.dataset.signature !== actionMarkup) {
+            actions.dataset.signature = actionMarkup;
+            actions.innerHTML = actionMarkup;
+            actions.querySelectorAll('[data-mw-event-action]').forEach((button) => button.addEventListener('click', () => {
+                bridge?.clearMovement?.();
+                button.blur();
+                perform(button.dataset.mwEventAction);
+            }));
+        }
 
         if (event.combat && stats && !stats.alive) {
             respawn.classList.remove('mw-event-hidden');
@@ -124,6 +140,7 @@
 
     function perform(action) {
         if (!event || !bridge?.send) return;
+        bridge?.clearMovement?.();
         if (action === 'firework') {
             const launcher = nearestLauncher();
             if (!launcher || Math.hypot(localPlayer().x-launcher.x,localPlayer().y-launcher.y) > 130) { bridge.toast?.('Walk beside a firework launcher first.', true); return; }
@@ -134,12 +151,19 @@
     function syncWorld(world) {
         active = Boolean(world);
         event = world?.event || null;
+        const worldGame = document.getElementById('mwGame');
+        if (worldGame) {
+            worldGame.dataset.eventType = event?.type || '';
+            worldGame.classList.toggle('mw-event-active', Boolean(event));
+        }
+        if (!world && rewardModalOpen) closeRewards();
         if (event?.id && event.id !== lastEventId) {
             lastEventId = event.id;
             if (event.localStats?.spawn && ['monkey_pvp','last_monkey_standing'].includes(event.type)) bridge?.teleport?.(event.localStats.spawn[0], event.localStats.spawn[1]);
             bridge?.toast?.(`${event.icon} ${event.name} started!`);
         }
         if (!event) lastEventId = '';
+        if (event?.type !== 'dance_party') { lastDanceStepAt = 0; lastDancePosition = null; }
         renderHud();
     }
 
@@ -163,10 +187,18 @@
         modal.querySelector('h2').textContent = `${message.eventName || 'Event'} Rewards`;
         modal.querySelector('p').textContent = message.reason || 'Thanks for participating!';
         modal.querySelector('.mw-event-reward-items').innerHTML = (message.rewards || []).map((reward) => `<div class="mw-event-reward-item"><img src="${rewardIcon(reward)}" alt=""><strong>${reward.amount > 1 ? `${reward.amount}× ` : ''}${escapeHtml(reward.label)}</strong></div>`).join('');
+        rewardModalOpen = true;
+        bridge?.pauseMovement?.(true);
         modal.classList.add('open'); modal.setAttribute('aria-hidden','false');
     }
 
-    function closeRewards() { const modal=document.getElementById('mwEventRewardModal'); modal?.classList.remove('open'); modal?.setAttribute('aria-hidden','true'); }
+    function closeRewards() {
+        const modal=document.getElementById('mwEventRewardModal');
+        rewardModalOpen = false;
+        bridge?.pauseMovement?.(false);
+        modal?.classList.remove('open');
+        modal?.setAttribute('aria-hidden','true');
+    }
 
     function handleMessage(message) {
         if (message.type === 'monkey_world_event_effect') {
@@ -183,8 +215,20 @@
         const local = localPlayer();
         const stats = localStats();
         if (local && stats?.alive && now - lastAutoCollectAt > 260) {
-            const nearby = (event.entities || []).filter((entity) => Math.hypot(local.x-entity.x,local.y-entity.y) < 68).sort((a,b) => Math.hypot(local.x-a.x,local.y-a.y)-Math.hypot(local.x-b.x,local.y-b.y))[0];
+            const nearby = (event.entities || []).filter((entity) => Math.hypot(local.x-entity.x,local.y-entity.y) < 108).sort((a,b) => Math.hypot(local.x-a.x,local.y-a.y)-Math.hypot(local.x-b.x,local.y-b.y))[0];
             if (nearby) { lastAutoCollectAt = now; bridge.send({ type:'monkey_world_event_action', action:'collect', entityId:nearby.id }); }
+        }
+        if (event.type === 'dance_party' && local && stats?.alive) {
+            const center = event.danceCenter || [1600,930];
+            const onFloor = Math.hypot(local.x-center[0],local.y-center[1]) <= 420;
+            const previous = lastDancePosition;
+            const moved = previous ? Math.hypot(local.x-previous.x,local.y-previous.y) : 0;
+            if (onFloor && moved >= 18 && now-lastDanceStepAt >= 620) {
+                lastDanceStepAt = now;
+                bridge.send({ type:'monkey_world_event_action', action:'dance' });
+                lastDancePosition = { x:local.x, y:local.y };
+            }
+            if (!previous || !onFloor) lastDancePosition = { x:local.x, y:local.y };
         }
         if (event.elimination && stats && !stats.alive) {
             const alive = (event.leaderboard || []).find((entry) => entry.alive && entry.profileId !== localId());
@@ -195,6 +239,7 @@
     }
 
     function modifyMovement(dx, dy, delta) {
+        if (rewardModalOpen) return { dx:0, dy:0 };
         if (event?.type !== 'snowstorm') { slipperyX = 0; slipperyY = 0; return { dx, dy }; }
         const smoothing = Math.min(1, delta * 3.2);
         slipperyX += (dx - slipperyX) * smoothing;
@@ -205,7 +250,9 @@
     }
 
     function drawPickup(context, entity, now) {
-        context.save(); context.translate(entity.x,entity.y); const bob=Math.sin(now*.004+entity.x)*5; context.translate(0,bob);
+        const fallProgress = entity.type === 'banana' ? Math.min(1, Math.max(0, (Date.now() - Number(entity.createdAt || Date.now())) / 850)) : 1;
+        const fallOffset = entity.type === 'banana' ? (1-fallProgress) * 150 : 0;
+        context.save(); context.translate(entity.x,entity.y-fallOffset); const bob=Math.sin(now*.004+entity.x)*5; context.translate(0,bob);
         context.shadowBlur=16;
         if(entity.type==='banana'){context.font='36px Arial';context.textAlign='center';context.shadowColor='#ffe34f';context.fillText('🍌',0,8);}
         else if(entity.type==='health_potion'||entity.type==='shield_potion'){
@@ -237,13 +284,14 @@
             if(event.combat)for(const player of data.players||[]){const stats=(event.leaderboard||[]).find((entry)=>entry.profileId===player.profileId);if(!stats?.alive)continue;context.save();context.translate(player.x+24,player.y-65);context.rotate(-.6+Math.sin(now*.012+player.x)*.08);context.strokeStyle='#6b3e18';context.lineWidth=6;context.beginPath();context.moveTo(0,16);context.lineTo(0,34);context.stroke();context.strokeStyle='#eaf6ff';context.shadowColor='#8cd9ff';context.shadowBlur=10;context.lineWidth=6;context.beginPath();context.moveTo(0,15);context.lineTo(0,-30);context.stroke();context.restore();}
             for(const fx of effects){const age=now-fx.localAt;if(['damage','sword_hit'].includes(fx.kind)&&fx.amount){const target=(event.leaderboard||[]).find((entry)=>entry.profileId===fx.targetId);const x=fx.x||target?.x,y=fx.y||target?.y;if(Number.isFinite(x)){context.save();context.globalAlpha=Math.max(0,1-age/1500);context.fillStyle='#fff08c';context.strokeStyle='#641c13';context.lineWidth=4;context.font='1000 24px Arial';context.textAlign='center';context.strokeText(`-${fx.amount}`,x,y-100-age*.03);context.fillText(`-${fx.amount}`,x,y-100-age*.03);context.restore();}}
                 if(fx.kind==='firework'){const launcher=fx.launcher||{x:1600,y:900};const progress=Math.min(1,age/900),burstAge=Math.max(0,age-900);const x=launcher.x,y=launcher.y-progress*520;context.save();context.globalCompositeOperation='lighter';context.fillStyle=fx.color;context.shadowColor=fx.color;context.shadowBlur=18;if(age<900){context.beginPath();context.arc(x,y,5,0,Math.PI*2);context.fill();}else{for(let i=0;i<28;i++){const angle=i/28*Math.PI*2,dist=Math.min(180,burstAge*.16);context.globalAlpha=Math.max(0,1-burstAge/3000);context.beginPath();context.arc(x+Math.cos(angle)*dist,y+Math.sin(angle)*dist,3,0,Math.PI*2);context.fill();}if(fx.golden){context.globalAlpha=Math.max(0,1-burstAge/2800);context.font='1000 32px Arial';context.textAlign='center';context.fillText('FLAPPY MONKEY',x,y);}}context.restore();}
-                if(fx.kind==='snowman'){context.save();context.translate(fx.x,fx.y);context.font='54px Arial';context.textAlign='center';context.fillText('⛄',0,0);context.restore();}}
+                if(fx.kind==='snowman'){context.save();context.translate(fx.x,fx.y);context.font='54px Arial';context.textAlign='center';context.fillText('⛄',0,0);context.restore();}
+                if(fx.kind==='snowball'){const travel=Math.min(1,age/700),directions={left:[-1,0],right:[1,0],up:[0,-1],down:[0,1]},vector=directions[fx.direction]||[0,1];context.save();context.translate(fx.x+vector[0]*travel*230,fx.y+vector[1]*travel*230);context.fillStyle='#f5fbff';context.shadowColor='#a9e5ff';context.shadowBlur=14;context.beginPath();context.arc(0,0,13,0,Math.PI*2);context.fill();context.restore();}}
         }
     }
 
     document.addEventListener('keydown',(input)=>{
         if(!event||!active||input.repeat||/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName||''))return;
-        if(input.code==='Space'){if(event.combat)perform('attack');else if(event.type==='dance_party')perform('dance');input.preventDefault();}
+        if(input.code==='Space'&&event.combat){perform('attack');input.preventDefault();input.stopImmediatePropagation();}
         else if(input.code==='KeyF'&&event.combat){perform('attack');input.preventDefault();}
     },true);
 
