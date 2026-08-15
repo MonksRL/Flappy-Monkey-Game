@@ -6708,64 +6708,126 @@ checkFoodSkinUnlocks();
             if (lastMonkeyStandingPipeTextures) return lastMonkeyStandingPipeTextures;
             const bodyCanvas = document.createElement('canvas');
             bodyCanvas.width = 68;
-            bodyCanvas.height = 96;
+            bodyCanvas.height = 144;
             const body = bodyCanvas.getContext('2d');
             const bodyGradient = body.createLinearGradient(0, 0, 68, 0);
-            bodyGradient.addColorStop(0, '#25040a');
-            bodyGradient.addColorStop(.12, '#6f0d1a');
-            bodyGradient.addColorStop(.3, '#c73543');
-            bodyGradient.addColorStop(.46, '#7f1220');
-            bodyGradient.addColorStop(.58, '#e04a50');
-            bodyGradient.addColorStop(.76, '#8b1423');
-            bodyGradient.addColorStop(1, '#2b050c');
+            bodyGradient.addColorStop(0, '#190207');
+            bodyGradient.addColorStop(.09, '#5d0714');
+            bodyGradient.addColorStop(.24, '#a71329');
+            bodyGradient.addColorStop(.42, '#e33c4a');
+            bodyGradient.addColorStop(.55, '#9c1026');
+            bodyGradient.addColorStop(.73, '#d32d40');
+            bodyGradient.addColorStop(.91, '#650918');
+            bodyGradient.addColorStop(1, '#1a0208');
             body.fillStyle = bodyGradient;
-            body.fillRect(0, 0, 68, 96);
-            body.fillStyle = 'rgba(255,244,180,.28)';
-            body.fillRect(8, 0, 5, 96);
-            body.fillStyle = 'rgba(75,0,12,.42)';
-            body.fillRect(49, 0, 8, 96);
-            for (const y of [18, 66]) {
-                body.fillStyle = '#7d3b05';
-                body.fillRect(0, y, 68, 9);
-                body.fillStyle = '#f3b52e';
-                body.fillRect(0, y + 1, 68, 5);
-                body.fillStyle = '#fff0a2';
-                body.fillRect(8, y + 2, 18, 2);
-                body.fillRect(42, y + 2, 18, 2);
-                body.fillStyle = '#9b1528';
-                body.fillRect(30, y, 8, 8);
+            body.fillRect(0, 0, 68, 144);
+            const velvetGlow = body.createRadialGradient(31, 68, 3, 31, 68, 43);
+            velvetGlow.addColorStop(0, 'rgba(255,111,117,.38)');
+            velvetGlow.addColorStop(.58, 'rgba(139,8,30,.08)');
+            velvetGlow.addColorStop(1, 'rgba(20,0,7,.34)');
+            body.fillStyle = velvetGlow;
+            body.fillRect(0, 0, 68, 144);
+            body.fillStyle = 'rgba(255,244,180,.22)';
+            body.fillRect(7, 0, 4, 144);
+            body.fillStyle = 'rgba(52,0,10,.38)';
+            body.fillRect(53, 0, 7, 144);
+            for (const y of [3, 130]) {
+                const band = body.createLinearGradient(0, 0, 68, 0);
+                band.addColorStop(0, '#5a2600');
+                band.addColorStop(.18, '#d6850b');
+                band.addColorStop(.42, '#fff0a0');
+                band.addColorStop(.63, '#efb62d');
+                band.addColorStop(.84, '#a85404');
+                band.addColorStop(1, '#4b1d00');
+                body.fillStyle = band;
+                body.fillRect(0, y, 68, 11);
+                body.fillStyle = 'rgba(255,255,214,.72)';
+                body.fillRect(4, y + 2, 60, 2);
+            }
+            body.save();
+            body.shadowColor = '#ffc52e';
+            body.shadowBlur = 5;
+            body.strokeStyle = '#eab63d';
+            body.lineWidth = 2;
+            body.beginPath();
+            body.moveTo(12, 103); body.bezierCurveTo(5, 80, 11, 55, 24, 42);
+            body.moveTo(56, 103); body.bezierCurveTo(63, 80, 57, 55, 44, 42);
+            body.stroke();
+            body.fillStyle = '#f2c650';
+            for (let index = 0; index < 5; index += 1) {
+                const y = 92 - index * 10;
+                const spread = 13 + index * 2.1;
+                body.save(); body.translate(34 - spread, y); body.rotate(-.58); body.beginPath(); body.ellipse(0, 0, 4.6, 2.1, 0, 0, Math.PI * 2); body.fill(); body.restore();
+                body.save(); body.translate(34 + spread, y); body.rotate(.58); body.beginPath(); body.ellipse(0, 0, 4.6, 2.1, 0, 0, Math.PI * 2); body.fill(); body.restore();
+            }
+            const crown = body.createLinearGradient(0, 58, 0, 101);
+            crown.addColorStop(0, '#fff4a8');
+            crown.addColorStop(.33, '#ffc92c');
+            crown.addColorStop(.7, '#de8e08');
+            crown.addColorStop(1, '#fff09a');
+            body.fillStyle = crown;
+            body.strokeStyle = '#723000';
+            body.lineWidth = 1.8;
+            body.beginPath();
+            body.moveTo(18, 95);
+            body.lineTo(20, 69);
+            body.lineTo(29, 80);
+            body.lineTo(34, 57);
+            body.lineTo(39, 80);
+            body.lineTo(48, 69);
+            body.lineTo(50, 95);
+            body.closePath();
+            body.fill(); body.stroke();
+            body.fillStyle = '#fff0a2';
+            body.fillRect(19, 90, 30, 6);
+            body.fillStyle = '#7b29c9';
+            body.save(); body.translate(34, 85); body.rotate(Math.PI / 4); body.fillRect(-4, -4, 8, 8); body.restore();
+            body.fillStyle = '#dfffff';
+            body.fillRect(33, 82, 2, 2);
+            body.restore();
+            for (const [x, y, size] of [[16,27,1.2],[50,23,1.5],[56,116,1.1],[10,120,1.4],[35,24,1]]) {
+                body.fillStyle = 'rgba(255,244,184,.72)';
+                body.beginPath(); body.arc(x, y, size, 0, Math.PI * 2); body.fill();
             }
             const capCanvas = document.createElement('canvas');
             capCanvas.width = 84;
             capCanvas.height = 34;
             const cap = capCanvas.getContext('2d');
             const capGradient = cap.createLinearGradient(0, 0, 84, 0);
-            capGradient.addColorStop(0, '#5b2b00');
-            capGradient.addColorStop(.14, '#d6810c');
-            capGradient.addColorStop(.34, '#fff0a0');
-            capGradient.addColorStop(.5, '#d98d13');
-            capGradient.addColorStop(.68, '#fff4b0');
-            capGradient.addColorStop(.86, '#c16b08');
-            capGradient.addColorStop(1, '#4a2100');
+            capGradient.addColorStop(0, '#431700');
+            capGradient.addColorStop(.11, '#bc6505');
+            capGradient.addColorStop(.3, '#ffe477');
+            capGradient.addColorStop(.43, '#fff7c6');
+            capGradient.addColorStop(.57, '#d9890b');
+            capGradient.addColorStop(.72, '#fff0a0');
+            capGradient.addColorStop(.9, '#a54d02');
+            capGradient.addColorStop(1, '#351000');
             cap.fillStyle = capGradient;
             cap.fillRect(0, 0, 84, 34);
-            cap.fillStyle = '#5b0915';
-            cap.fillRect(6, 12, 72, 13);
-            cap.fillStyle = '#bd2034';
-            cap.fillRect(9, 14, 66, 8);
-            cap.fillStyle = '#fff1a0';
-            cap.fillRect(7, 5, 70, 3);
-            cap.fillStyle = '#58d9ff';
+            const inset = cap.createLinearGradient(0, 0, 84, 0);
+            inset.addColorStop(0, '#33030b');
+            inset.addColorStop(.2, '#9b1025');
+            inset.addColorStop(.5, '#e23d4d');
+            inset.addColorStop(.8, '#8c0d20');
+            inset.addColorStop(1, '#2d0209');
+            cap.fillStyle = inset;
+            cap.fillRect(6, 11, 72, 14);
+            cap.fillStyle = '#fff4af';
+            cap.fillRect(6, 4, 72, 2);
+            cap.fillRect(6, 27, 72, 2);
+            cap.fillStyle = '#8436db';
             cap.save();
             cap.translate(42, 18);
             cap.rotate(Math.PI / 4);
-            cap.fillRect(-5, -5, 10, 10);
+            cap.fillRect(-4, -4, 8, 8);
             cap.restore();
-            cap.fillStyle = '#fff7ce';
-            cap.fillRect(40, 15, 4, 4);
+            cap.fillStyle = '#eaffff';
+            cap.fillRect(41, 16, 2, 2);
             lastMonkeyStandingPipeTextures = {
                 body:ctx.createPattern(bodyCanvas, 'repeat'),
-                cap:ctx.createPattern(capCanvas, 'repeat')
+                cap:ctx.createPattern(capCanvas, 'repeat'),
+                bodyTransform:new DOMMatrix(),
+                capTransform:new DOMMatrix()
             };
             return lastMonkeyStandingPipeTextures;
         }
@@ -7281,6 +7343,10 @@ if (selectedTitle && selectedTitle !== 'None') {
                         // look without rebuilding gradients or GPU-heavy blur
                         // for every pipe on every animation frame.
                         const royalTextures = getLastMonkeyStandingPipeTextures();
+                        royalTextures.bodyTransform.e = p.x;
+                        royalTextures.capTransform.e = p.x - 8;
+                        royalTextures.body.setTransform(royalTextures.bodyTransform);
+                        royalTextures.cap.setTransform(royalTextures.capTransform);
                         pipeFill = royalTextures.body;
                         capFill = royalTextures.cap;
                         pipeStroke = '#ffe78b';
@@ -7330,38 +7396,6 @@ if (selectedTitle && selectedTitle !== 'None') {
                 ctx.strokeRect(p.x - 8, bottom, 84, 34);
                 ctx.shadowBlur = 0;
                 drawPipeThemeDetails(p, top, bottom);
-                if (!activeEvent && selectedPipeTheme === 'last-monkey-standing') {
-                    ctx.save();
-                    for (const [segmentY, segmentHeight] of [[0, top], [bottom, GROUND_Y-bottom]]) {
-                        ctx.save();
-                        ctx.beginPath();ctx.rect(p.x+3,segmentY,62,segmentHeight);ctx.clip();
-                        ctx.globalAlpha=.78;
-                        for(let y=segmentY+18;y<segmentY+segmentHeight;y+=96){
-                            ctx.fillStyle='#f2b632';ctx.fillRect(p.x+4,y,60,3);
-                            ctx.fillStyle='#fff0a0';ctx.fillRect(p.x+8,y+1,18,2);
-                            ctx.fillRect(p.x+42,y+1,18,2);
-                        }
-                        ctx.restore();
-                    }
-                    for (const capY of [top-28,bottom]) {
-                        ctx.globalAlpha=.96;
-                        ctx.fillStyle='#ffe471';
-                        ctx.beginPath();
-                        ctx.moveTo(p.x+18,capY+24);
-                        ctx.lineTo(p.x+22,capY+10);
-                        ctx.lineTo(p.x+34,capY+20);
-                        ctx.lineTo(p.x+42,capY+7);
-                        ctx.lineTo(p.x+50,capY+20);
-                        ctx.lineTo(p.x+62,capY+10);
-                        ctx.lineTo(p.x+66,capY+24);
-                        ctx.closePath();
-                        ctx.fill();
-                        ctx.strokeStyle='#7a3400';ctx.lineWidth=2;ctx.stroke();
-                        ctx.fillStyle='#53dcff';
-                        ctx.save();ctx.translate(p.x+42,capY+21);ctx.rotate(Math.PI/4);ctx.fillRect(-4,-4,8,8);ctx.restore();
-                    }
-                    ctx.restore();
-                }
                 if (!activeEvent && selectedPipeTheme === 'index-infinite') {
                     const flow = (frame * 2.6) % 34;
                     ctx.save();
