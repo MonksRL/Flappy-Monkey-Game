@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_VERSION = 'flappy-monkey-world-runtime-v14';
+const CACHE_VERSION = 'flappy-monkey-world-runtime-v15';
 const APP_SHELL = [
     './', './index.html', './manifest.json', './mobile.css', './multiplayer.css',
     './birthday-event.css', './game-dialog.css', './game-dialog.js', './birthday-event.js',
@@ -15,7 +15,7 @@ const APP_SHELL = [
     './theme-completion-pass.css', './theme-last-mile.css', './theme-runtime-fixes.js',
     './theme-last-mile.js', './multiplayer.js', './pwa.js', './icon.ico',
     './monkey-192.png', './monkey-512.png',
-    './Default Monkey.png', './sock-monkey.png'
+    './Default Monkey.png', './sock-monkey.png', './Connected Monkey.png', './connected-monkey-bg.png'
 ].map((path) => new URL(path, self.registration.scope).href);
 const OFFLINE_DOCUMENT = new URL('./index.html', self.registration.scope).href;
 
