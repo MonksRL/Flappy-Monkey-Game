@@ -1,0 +1,283 @@
+:root {
+    --mobile-safe-top: env(safe-area-inset-top, 0px);
+    --mobile-safe-right: env(safe-area-inset-right, 0px);
+    --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --mobile-safe-left: env(safe-area-inset-left, 0px);
+}
+
+html { min-height:100%; -webkit-text-size-adjust:100%; overscroll-behavior:none; }
+body { min-height:100dvh; padding-left:max(12px,var(--mobile-safe-left)); padding-right:max(12px,var(--mobile-safe-right)); }
+button, input, select, textarea { font:inherit; }
+#installAppBtn { color:#102511!important; background:linear-gradient(145deg,#ffe773,#d9a923)!important; border-color:#fff0a3!important; }
+.mw-touch-stick { display:none; }
+
+@media (hover:none), (pointer:coarse) {
+    button, [role="button"], select, input[type="button"], input[type="submit"] { min-height:44px; }
+    button:hover, [role="button"]:hover { transform:none!important; }
+    input, textarea, select { font-size:16px!important; }
+    canvas { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+    #onlineDefenseCanvas, #monkeyWorldCanvas { touch-action:none!important; }
+    #towerDefenseScreen, #multiplayerScreen, #onlineDefenseScreen { padding-top:max(9px,var(--mobile-safe-top)); padding-bottom:max(18px,var(--mobile-safe-bottom)); }
+    .mw-topbar { top:max(15px,var(--mobile-safe-top)); }
+    .mw-touch-stick { position:absolute; z-index:13; left:max(16px,var(--mobile-safe-left)); bottom:max(18px,var(--mobile-safe-bottom)); display:block; width:112px; height:112px; border:2px solid rgba(255,238,133,.72); border-radius:50%; background:rgba(4,31,22,.68); box-shadow:0 10px 30px rgba(0,0,0,.35),inset 0 0 22px rgba(135,220,129,.12); touch-action:none; }
+    .mw-touch-stick::before { content:"MOVE"; position:absolute; left:0; right:0; top:13px; color:rgba(255,245,177,.72); font-size:9px; font-weight:1000; text-align:center; letter-spacing:.12em; }
+    .mw-touch-knob { position:absolute; left:50%; top:50%; width:48px; height:48px; margin:-24px 0 0 -24px; border:2px solid #fff09a; border-radius:50%; background:linear-gradient(145deg,#4f9363,#1d5735); box-shadow:0 5px 14px rgba(0,0,0,.35); pointer-events:none; transform:translate(0,0); }
+    .mw-controls { display:none!important; }
+    #mwInteract { left:auto!important; right:max(16px,var(--mobile-safe-right)); bottom:max(22px,var(--mobile-safe-bottom)); min-width:150px; transform:none!important; }
+}
+
+@media (max-width:760px), (max-height:520px) and (orientation:landscape) {
+    html, html body { width:100%; height:100%; min-height:0!important; overflow:hidden!important; }
+    html body {
+        max-width:none;
+        padding:max(62px,calc(var(--mobile-safe-top) + 54px)) max(6px,var(--mobile-safe-right)) max(4px,var(--mobile-safe-bottom)) max(6px,var(--mobile-safe-left))!important;
+        display:grid!important;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        grid-template-rows:auto auto auto auto minmax(0,1fr) auto;
+        grid-template-areas:
+            "brand brand"
+            "quick-one quick-two"
+            "xp xp"
+            "status collection"
+            "game game"
+            "nav nav";
+        gap:4px;
+        overflow:hidden;
+    }
+    body>.title {
+        grid-area:brand;
+        align-self:center;
+        justify-self:center;
+        margin:0!important;
+        font-size:clamp(26px,8.4vw,34px)!important;
+        line-height:1!important;
+        white-space:nowrap;
+    }
+    body>#countdownToggle { grid-area:quick-one; justify-self:end; }
+    body>#powerupsInfoBtn { grid-area:quick-two; justify-self:start; }
+    body>#countdownToggle,
+    body>#powerupsInfoBtn {
+        min-height:27px;
+        margin:0!important;
+        padding:4px 10px!important;
+        font-size:9px!important;
+        line-height:1!important;
+    }
+    body>#xpContainer {
+        grid-area:xp;
+        width:min(420px,100%)!important;
+        margin:0 auto!important;
+        padding:6px 10px 7px!important;
+        border-radius:12px!important;
+    }
+    body #xpLabel { margin:0 0 4px!important; font-size:10px!important; line-height:1.05!important; }
+    body #xpContainer .progress-container { height:7px!important; }
+    body #lobbyMonkeyContainer,
+    body #lobbyTitleDisplay { display:none!important; }
+    body>#onlinePopulation {
+        grid-area:status;
+        justify-self:stretch;
+        width:100%!important;
+        min-width:0;
+        max-width:none;
+        min-height:32px;
+        margin:0!important;
+        padding:5px 8px!important;
+        display:grid;
+        place-items:center;
+        overflow:hidden;
+        font-size:9px!important;
+        line-height:1!important;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+    }
+    body>#collectionIndexBtn {
+        grid-area:collection;
+        justify-self:stretch;
+        position:relative!important;
+        inset:auto!important;
+        order:initial!important;
+        width:100%!important;
+        height:32px!important;
+        min-height:32px!important;
+        margin:0!important;
+        padding:3px 8px!important;
+        gap:5px!important;
+        border-radius:11px!important;
+    }
+    body #collectionIndexBtn img { width:25px!important; height:25px!important; }
+    body #collectionIndexBtn .collection-index-btn-copy { display:block!important; overflow:hidden; }
+    body #collectionIndexBtn .collection-index-btn-copy strong { display:block; overflow:hidden; font-size:9px!important; text-overflow:ellipsis; }
+    body #collectionIndexBtn .collection-index-btn-copy small { display:none!important; }
+    body #canvas {
+        grid-area:game;
+        align-self:stretch;
+        justify-self:center;
+        order:initial!important;
+        width:auto!important;
+        height:100%!important;
+        min-height:0!important;
+        max-width:100%!important;
+        max-height:100%!important;
+        aspect-ratio:420 / 620;
+        margin:1px auto!important;
+        border-width:3px!important;
+        border-radius:16px!important;
+        outline-offset:-6px!important;
+        box-shadow:0 0 0 4px rgba(16,56,35,.75),0 8px 24px rgba(0,0,0,.42),0 0 22px rgba(117,220,104,.13)!important;
+        touch-action:none;
+    }
+    body .button-row {
+        grid-area:nav;
+        align-self:end;
+        order:initial!important;
+        width:100%!important;
+        min-height:0;
+        margin:0!important;
+        padding:0!important;
+        display:grid!important;
+        grid-template-columns:repeat(5,minmax(0,1fr));
+        gap:4px!important;
+    }
+    body .button-row>button {
+        min-width:0!important;
+        min-height:44px!important;
+        height:44px;
+        margin:0!important;
+        padding:3px 2px!important;
+        overflow:hidden;
+        font-size:0!important;
+        line-height:1!important;
+        white-space:normal!important;
+        border-radius:10px!important;
+        box-shadow:inset 0 1px rgba(255,255,255,.10),0 4px 10px rgba(0,0,0,.24)!important;
+    }
+    body .button-row>button::after { display:block; font-size:9px; font-weight:900; line-height:1.05; }
+    body #skinBtn::after { content:"Monkey"; }
+    body #modeBtn::after { content:"Mode"; }
+    body #titlesBtn::after { content:"Titles"; }
+    body #shopBtn::after { content:"Market"; }
+    body #bananaPassBtn::after { content:"Pass"; }
+    body #inventoryBtn::after { content:"Items"; }
+    body #settingsBtn::after { content:"Settings"; }
+    body #onlineHubBtn::after { content:"Online"; }
+    body #muteBtn::after { content:"Sound"; }
+    body #musicOptionsBtn::after { content:"Music"; }
+    body #resetBtn::after { content:"Reset"; }
+    body #footer-credit { display:none!important; }
+    body #mpInboxButton,
+    body #mpActivityButton,
+    body #mpConnectShortcut,
+    body #mpGoOfflineShortcut,
+    body #mpFriendsShortcut { display:none!important; }
+    body #profileBtn {
+        top:max(8px,var(--mobile-safe-top))!important;
+        left:max(8px,var(--mobile-safe-left))!important;
+        width:42px!important;
+        height:42px!important;
+        min-height:42px!important;
+        padding:5px!important;
+    }
+    body #usernameDisplayHeader {
+        top:max(11px,calc(var(--mobile-safe-top) + 3px))!important;
+        left:max(58px,calc(var(--mobile-safe-left) + 50px))!important;
+        max-width:calc(100vw - max(58px,calc(var(--mobile-safe-left) + 50px)) - max(60px,calc(var(--mobile-safe-right) + 52px)))!important;
+        min-height:36px;
+        padding:6px 9px!important;
+        font-size:11px!important;
+    }
+    body #dailyQuestBtn {
+        top:max(8px,var(--mobile-safe-top))!important;
+        right:max(8px,var(--mobile-safe-right))!important;
+        width:42px;
+        height:42px;
+        min-height:42px!important;
+        padding:5px!important;
+        font-size:18px!important;
+    }
+    body #dailyQuestBtn span { display:none!important; }
+    body #secretSockBtn {
+        left:max(8px,var(--mobile-safe-left))!important;
+        bottom:calc(max(5px,var(--mobile-safe-bottom)) + 94px)!important;
+        width:36px!important;
+        height:36px!important;
+        min-height:36px!important;
+        opacity:.82;
+    }
+    #settingsPopup, #skinMenu, #titlesMenu, #modeMenu, #shopMenu, #profileMenu,
+    #bananaPassMenu, #inventoryMenu, #collectionIndexPopup, #musicOptionsPopup,
+    #powerupsInfoPopup, #customTitleColorPopup, #socialsPopup, #dailyQuestPopup,
+    #secretDecodePopup { padding-top:max(10px,var(--mobile-safe-top))!important; padding-right:max(8px,var(--mobile-safe-right))!important; padding-bottom:max(10px,var(--mobile-safe-bottom))!important; padding-left:max(8px,var(--mobile-safe-left))!important; }
+    #settingsPopup .settings-box, #onlineAccountSettingsPanel, .mp-overlay-card { width:100%!important; max-height:calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom) - 16px)!important; overflow-y:auto!important; }
+
+    #towerDefenseScreen { padding-top:max(9px,var(--mobile-safe-top)); padding-right:max(7px,var(--mobile-safe-right)); padding-bottom:max(20px,var(--mobile-safe-bottom)); padding-left:max(7px,var(--mobile-safe-left)); }
+    .td-top-actions { display:grid; width:100%; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .td-top-actions>* { width:100%!important; max-width:none!important; min-height:44px; }
+    .td-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .td-stat:last-child { grid-column:1 / -1; }
+    .td-side { grid-template-columns:1fr; }
+    .td-side h2 { grid-column:auto; }
+    #tdCanvas { touch-action:none; }
+    .td-action, .td-wave, .td-fast, #towerDefenseScreen .td-power { min-height:48px!important; }
+    .td-tower-row { grid-template-columns:1fr; }
+    .td-tower { min-height:64px; }
+
+    #multiplayerScreen, #onlineDefenseScreen { padding-top:max(9px,var(--mobile-safe-top)); padding-right:max(7px,var(--mobile-safe-right)); padding-bottom:max(20px,var(--mobile-safe-bottom)); padding-left:max(7px,var(--mobile-safe-left)); }
+    .mp-overlay { padding-top:max(8px,var(--mobile-safe-top)); padding-right:max(8px,var(--mobile-safe-right)); padding-bottom:max(8px,var(--mobile-safe-bottom)); padding-left:max(8px,var(--mobile-safe-left)); }
+    .mp-race-stage, .od-stage { min-width:0; }
+    .mp-canvas-wrap, #onlineDefenseCanvas { width:100%!important; max-width:100%!important; }
+
+    .mw-touch-stick { position:absolute; z-index:13; left:max(16px,var(--mobile-safe-left)); bottom:max(18px,var(--mobile-safe-bottom)); display:block; width:112px; height:112px; border:2px solid rgba(255,238,133,.72); border-radius:50%; background:rgba(4,31,22,.68); box-shadow:0 10px 30px rgba(0,0,0,.35),inset 0 0 22px rgba(135,220,129,.12); touch-action:none; }
+    .mw-touch-stick::before { content:"MOVE"; position:absolute; left:0; right:0; top:13px; color:rgba(255,245,177,.72); font-size:9px; font-weight:1000; text-align:center; letter-spacing:.12em; }
+    .mw-touch-knob { position:absolute; left:50%; top:50%; width:48px; height:48px; margin:-24px 0 0 -24px; border:2px solid #fff09a; border-radius:50%; background:linear-gradient(145deg,#4f9363,#1d5735); box-shadow:0 5px 14px rgba(0,0,0,.35); pointer-events:none; transform:translate(0,0); }
+    .mw-controls { display:none!important; }
+    #mwInteract { left:auto!important; right:max(16px,var(--mobile-safe-right)); bottom:max(22px,var(--mobile-safe-bottom)); min-width:150px; transform:none!important; }
+    .mw-chat-toggle { right:max(16px,var(--mobile-safe-right)); bottom:calc(max(22px,var(--mobile-safe-bottom)) + 58px); }
+}
+
+@media (max-width:390px) {
+    body>.title { font-size:25px!important; }
+    body .button-row>button::after { font-size:8px; }
+    .td-modifier-grid, .td-campaign-hud { grid-template-columns:1fr; }
+    .td-map-preview { height:105px; }
+    .mp-stats, .mp-race-standings { grid-template-columns:1fr!important; }
+    .mw-touch-stick { width:96px; height:96px; }
+    #mwInteract { min-width:132px; padding-inline:10px!important; }
+}
+
+@media (max-height:520px) and (orientation:landscape) {
+    html body {
+        padding:max(4px,var(--mobile-safe-top)) max(6px,var(--mobile-safe-right)) max(4px,var(--mobile-safe-bottom)) max(6px,var(--mobile-safe-left))!important;
+        grid-template-columns:minmax(220px,45%) repeat(2,minmax(0,1fr));
+        grid-template-rows:auto auto auto auto minmax(0,1fr);
+        grid-template-areas:
+            "game brand brand"
+            "game quick-one quick-two"
+            "game xp xp"
+            "game status collection"
+            "game nav nav";
+        column-gap:9px;
+    }
+    body>.title { font-size:clamp(22px,4vw,30px)!important; }
+    body #profileBtn,
+    body #usernameDisplayHeader,
+    body #dailyQuestBtn { opacity:.82; }
+    body #secretSockBtn { left:max(8px,var(--mobile-safe-left))!important; bottom:max(8px,var(--mobile-safe-bottom))!important; }
+    #towerDefenseScreen, #multiplayerScreen, #onlineDefenseScreen { padding-top:max(5px,var(--mobile-safe-top)); }
+    .td-heading p, .td-help, .mw-location span { display:none; }
+    .mw-touch-stick { width:88px; height:88px; bottom:max(10px,var(--mobile-safe-bottom)); }
+    .mw-touch-knob { width:42px; height:42px; margin:-21px 0 0 -21px; }
+}
+
+@media (max-width:760px) and (max-height:700px) and (orientation:portrait) {
+    html body {
+        grid-template-rows:auto auto auto minmax(0,1fr) auto;
+        grid-template-areas:
+            "quick-one quick-two"
+            "xp xp"
+            "status collection"
+            "game game"
+            "nav nav";
+    }
+    body>.title { display:none!important; }
+}

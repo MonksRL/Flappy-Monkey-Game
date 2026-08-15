@@ -1,23 +1,161 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
+const { createDiscordPresence } = require('./discord-presence');
+
+let mainWindow;
+let discordPresence;
+const startupSmokeTest = process.env.FLAPPY_SMOKE_TEST === 'true';
+let rendererErrorCount = 0;
 
 function createWindow() {
-  const win = new BrowserWindow({
-    width: 460,
-    height: 820,
-    icon: path.join(__dirname, 'favicon.ico'),   // optional
+  mainWindow = new BrowserWindow({
+    width: startupSmokeTest ? 1000 : 460,
+    height: 720,
+    minWidth: 460,
+    minHeight: 720,
+    resizable: true,
+    maximizable: true,
+    fullscreen: !startupSmokeTest,
+    autoHideMenuBar: true,
+    show: !startupSmokeTest,
+    icon: path.join(__dirname, 'icon.ico'),
+    backgroundColor: '#222222',
     webPreferences: {
-      nodeIntegration: true,      // REQUIRED for your updater code
-      contextIsolation: false     // REQUIRED for your updater code
+      nodeIntegration: true,
+      contextIsolation: false,
+      // Keep gameplay, WebSocket heartbeats, and animation timers running when
+      // the user switches to another window or monitor.
+      backgroundThrottling: false
     }
   });
 
-  win.loadFile('index.html');
-  // win.webContents.openDevTools(); // remove for release
+  mainWindow.webContents.setBackgroundThrottling(false);
+
+  mainWindow.loadFile('index.html');
+
+  if (startupSmokeTest) {
+    mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      if (level >= 2) {
+        rendererErrorCount += 1;
+        console.error(`Renderer: ${message} (${sourceId}:${line})`);
+      }
+    });
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(async () => {
+        try {
+          const result = await mainWindow.webContents.executeJavaScript(`(() => {
+            const gate = document.getElementById('onlineStartupGate');
+            const auth = document.getElementById('startupAuth');
+            const registerEmail = document.getElementById('startupRegisterEmail');
+            const settingsAccountPanel = document.getElementById('onlineAccountSettingsPanel');
+            const socialPanel = document.getElementById('mpSocialPanel');
+            const dangerModal = document.getElementById('mpAccountDangerModal');
+            const resetButton = document.getElementById('resetBtn');
+            const lobbyButtons = [...document.querySelectorAll('.button-row > button')].filter((button) => getComputedStyle(button).display !== 'none');
+            const lobbyLabelsFit = lobbyButtons.every((button) => button.scrollWidth <= button.clientWidth + 1);
+            const lobbyButtonWidths = lobbyButtons.map((button) => ({ id: button.id, client: button.clientWidth, scroll: button.scrollWidth }));
+            document.getElementById('profileBtn')?.click();
+            const activeAccountId = window.flappyGetActiveOnlineAccount?.()?.id || '';
+            const profileTestId = activeAccountId || 'FMU_SMOKE_TEST_PUBLIC_ID';
+            if (!activeAccountId && typeof applyOnlineAccountToProfile === 'function') {
+              applyOnlineAccountToProfile({ id: profileTestId });
+            }
+            const profileUserIdRow = document.getElementById('profileUserIdRow');
+            const profileUserIdVisibleWhenAccount = Boolean(
+              profileUserIdRow
+              && !profileUserIdRow.hidden
+              && document.getElementById('profileUserIdValue')?.textContent.trim() === profileTestId
+            );
+            document.getElementById('closeProfileMenu')?.click();
+            document.getElementById('onlineHubBtn')?.click();
+            resetButton?.click();
+            return {
+              gateExists: Boolean(gate),
+              gateLocked: Boolean(gate && !gate.classList.contains('unlocked')),
+              authOpen: Boolean(auth && auth.classList.contains('open')),
+              emailFieldExists: Boolean(registerEmail),
+              settingsAccountPanelExists: Boolean(settingsAccountPanel),
+              socialPanelExists: Boolean(socialPanel),
+              resetWarningOpens: Boolean(dangerModal?.classList.contains('open')),
+              resetKeepsLogin: Boolean(document.getElementById('mpDangerDescription')?.textContent.includes('current login')),
+              onlineHubOpen: Boolean(document.getElementById('onlineModesScreen')?.classList.contains('open')),
+              onlineModeCount: document.querySelectorAll('.online-hub-card').length,
+              inventoryExists: Boolean(document.getElementById('inventoryMenu')),
+              monkeyWorldHiddenAtStartup: getComputedStyle(document.getElementById('monkeyWorldScreen')).display === 'none',
+              defenseRankHasLabel: Boolean(document.getElementById('odRankCard')?.textContent.trim()),
+              headerLevelBadgeExists: Boolean(document.querySelector('#usernameDisplayHeader .header-level-badge')),
+              activeAccountIdFound: Boolean(activeAccountId),
+              profileUserIdVisibleWhenAccount,
+              lobbyButtonCount: lobbyButtons.length,
+              lobbyLabelsFit,
+              lobbyButtonWidths,
+              viewportWidth: innerWidth,
+              lobbyRowWidth: document.querySelector('.button-row')?.clientWidth || 0,
+              lobbyRowWrap: document.querySelector('.button-row') ? getComputedStyle(document.querySelector('.button-row')).flexWrap : 'missing',
+              lobbyRowCssWidth: document.querySelector('.button-row') ? getComputedStyle(document.querySelector('.button-row')).width : 'missing',
+              desktopMediaMatches: matchMedia('(min-width: 900px)').matches,
+              gateDisplay: gate ? getComputedStyle(gate).display : 'missing'
+            };
+          })()`);
+          console.log(`STARTUP_UI_RESULT=${JSON.stringify(result)}`);
+          const passed = result.gateExists && result.emailFieldExists && result.settingsAccountPanelExists && result.socialPanelExists && result.resetWarningOpens && result.resetKeepsLogin && result.onlineHubOpen && result.onlineModeCount === 4 && result.inventoryExists && result.monkeyWorldHiddenAtStartup && result.defenseRankHasLabel && result.headerLevelBadgeExists && result.profileUserIdVisibleWhenAccount && result.lobbyButtonCount >= 7 && result.lobbyLabelsFit && rendererErrorCount === 0;
+          app.exit(passed ? 0 : 1);
+        } catch (error) {
+          console.error(`Startup UI smoke test failed: ${error.message}`);
+          app.exit(1);
+        }
+      }, 2300);
+    });
+  }
+
+  console.log('✅ Flappy Monkey launched successfully');
 }
 
-app.whenReady().then(createWindow);
+ipcMain.on('discord-presence:set-enabled', (_event, enabled) => {
+  discordPresence?.setEnabled(Boolean(enabled));
+});
+
+ipcMain.on('discord-presence:update', (_event, activity) => {
+  discordPresence?.updateActivity(activity);
+});
+
+ipcMain.handle('discord-presence:get-status', () => discordPresence?.getStatus() || {
+  status: 'unavailable',
+  configured: false,
+  enabled: false
+});
+
+app.whenReady().then(() => {
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission, _requestingOrigin, details) => {
+    if (permission !== 'media') return false;
+    const mediaTypes = Array.isArray(details?.mediaTypes) ? details.mediaTypes : [];
+    return mediaTypes.length === 0 || (mediaTypes.includes('audio') && !mediaTypes.includes('video'));
+  });
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+    if (permission !== 'media') { callback(false); return; }
+    const mediaTypes = Array.isArray(details?.mediaTypes) ? details.mediaTypes : [];
+    callback(mediaTypes.length === 0 || (mediaTypes.includes('audio') && !mediaTypes.includes('video')));
+  });
+  discordPresence = createDiscordPresence({
+    baseDirectory: __dirname,
+    onStatus(status) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('discord-presence:status', status);
+      }
+    }
+  });
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  discordPresence?.destroy();
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
 });

@@ -1,0 +1,189 @@
+/* Final shared theme coverage pass.
+   This file intentionally uses the existing runtime theme variables so every
+   screen follows the equipped Menu Theme without duplicating theme palettes. */
+:root {
+  --fm-theme-page: var(--theme-page, var(--theme-bg, var(--page-bg, #071d18)));
+  --fm-theme-panel: var(--theme-panel, var(--panel-bg, color-mix(in srgb, var(--fm-theme-page) 82%, white 18%)));
+  --fm-theme-card: var(--theme-card, var(--card-bg, color-mix(in srgb, var(--fm-theme-panel) 86%, white 14%)));
+  --fm-theme-button: var(--theme-button, var(--button-bg, var(--theme-accent, #1f6f55)));
+  /* Keep the default UI border neutral. The old cyan fallback was applied to
+     every ordinary control even when no menu theme was equipped. */
+  --fm-theme-border: var(--theme-border, var(--menu-border, rgba(255, 255, 255, .17)));
+  --fm-theme-input: var(--theme-input, color-mix(in srgb, var(--fm-theme-page) 72%, black 28%));
+  --fm-theme-text: var(--theme-text, #fff4b8);
+  --fm-theme-muted: var(--theme-muted, #c1d9d0);
+}
+
+/* Native selects otherwise open an unreadable white operating-system list. */
+select {
+  color: var(--fm-theme-text) !important;
+  background-color: var(--fm-theme-input) !important;
+  border-color: var(--fm-theme-border) !important;
+  /* Chromium's native Windows popup can ignore an option's dark background.
+     Use a light native popup palette so its text stays readable in all themes. */
+  color-scheme: light;
+}
+select option,
+select optgroup {
+  color: #17231d !important;
+  -webkit-text-fill-color: #17231d !important;
+  background: #f4f1e8 !important;
+}
+select option:checked,
+select option:hover {
+  color: #10233a !important;
+  -webkit-text-fill-color: #10233a !important;
+  background: #91bff0 !important;
+}
+
+/* Settings rows must size to their own content, not the tallest neighbour. */
+#settingsModal .settings-grid,
+.settings-modal .settings-grid,
+.settings-content .settings-grid {
+  align-items: start !important;
+  grid-auto-rows: max-content !important;
+}
+#settingsModal .settings-grid > *,
+.settings-modal .settings-grid > *,
+.settings-content .settings-grid > *,
+#settingsModal .settings-card,
+#settingsModal .settings-section,
+.settings-modal .settings-card,
+.settings-modal .settings-section {
+  align-self: start !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+/* Shared surfaces that previously retained the default green palette. */
+:is(
+  .collection-index-modal, .collection-index, .collection-panel, .collection-header,
+  .collection-summary, .collection-rewards, .collection-controls, .collection-tabs,
+  .music-options-modal, .music-options, .music-modal, .music-panel,
+  .global-live-activity, .live-activity-modal, .live-activity-panel,
+  .online-modes, .online-modes-page, .online-modes-header,
+  .online-defense, .online-defense-page, .online-defense-panel,
+  .defense-guide, .defense-guide-modal, .defense-guide-panel,
+  .online-race, .online-race-page, .monkey-duel, .monkey-duel-page,
+  .friends-page, .friends-messages, .friends-panel,
+  .monkey-world-landmark, .world-landmark-card, .landmark-card,
+  .world-chat, .world-chat-panel, .world-chat-window,
+  .monkey-world-emote-wheel, .emote-wheel, .emote-wheel-panel,
+  .monkey-world-controls, .world-controls-hint, .controls-hint
+) {
+  background-color: var(--fm-theme-panel) !important;
+  border-color: var(--fm-theme-border) !important;
+  color: var(--fm-theme-text) !important;
+}
+
+/* Also cover ID-based renderers used by older screens. */
+:is(
+  #collectionIndexModal, #collectionIndex, #musicOptionsModal, #musicOptions,
+  #globalLiveActivity, #liveActivityModal, #onlineModesScreen, #onlineModes,
+  #onlineDefenseScreen, #onlineDefense, #defenseGuideModal, #defenseGuide,
+  #onlineRaceScreen, #monkeyDuelScreen, #friendsMessagesScreen,
+  #worldChat, #worldChatPanel, #monkeyWorldEmoteWheel, #emoteWheel,
+  #worldLandmarkCard, #monkeyWorldControls
+) {
+  background-color: var(--fm-theme-panel) !important;
+  border-color: var(--fm-theme-border) !important;
+  color: var(--fm-theme-text) !important;
+}
+
+/* Cards/items inside those screens inherit the active theme as well. */
+:is(
+  .collection-index-modal, .collection-index, #collectionIndexModal,
+  .music-options-modal, .music-options, #musicOptionsModal,
+  .global-live-activity, .live-activity-modal, #globalLiveActivity,
+  .online-modes, .online-modes-page, #onlineModesScreen,
+  .online-defense, .online-defense-page, #onlineDefenseScreen,
+  .defense-guide, .defense-guide-modal, #defenseGuideModal,
+  .friends-page, .friends-messages, #friendsMessagesScreen,
+  .banana-market, .market-screen, #bananaMarket
+) :is(
+  .card, .item-card, .reward-card, .summary-card, .stat-card, .mode-card,
+  .panel, .section, .message-card, .friend-card, .member-card, .quest-card,
+  .market-card, .shop-card, .product-card, .cosmetic-card
+) {
+  background-color: var(--fm-theme-card) !important;
+  border-color: var(--fm-theme-border) !important;
+  color: var(--fm-theme-text) !important;
+}
+
+/* Theme the controls in those screens while preserving danger/success states. */
+:is(
+  .collection-index-modal, .collection-index, #collectionIndexModal,
+  .music-options-modal, .music-options, #musicOptionsModal,
+  .global-live-activity, .live-activity-modal, #globalLiveActivity,
+  .online-modes, .online-modes-page, #onlineModesScreen,
+  .online-defense, .online-defense-page, #onlineDefenseScreen,
+  .defense-guide, .defense-guide-modal, #defenseGuideModal,
+  .online-race, .online-race-page, .monkey-duel, .monkey-duel-page,
+  .friends-page, .friends-messages, #friendsMessagesScreen,
+  .world-chat, .world-chat-panel, #worldChat,
+  .banana-market, .market-screen, #bananaMarket
+) :is(button, .button, .btn, input, textarea, select) {
+  border-color: var(--fm-theme-border) !important;
+}
+:is(
+  .collection-index-modal, .collection-index, #collectionIndexModal,
+  .music-options-modal, .music-options, #musicOptionsModal,
+  .global-live-activity, .live-activity-modal, #globalLiveActivity,
+  .online-modes, .online-modes-page, #onlineModesScreen,
+  .online-defense, .online-defense-page, #onlineDefenseScreen,
+  .defense-guide, .defense-guide-modal, #defenseGuideModal,
+  .online-race, .online-race-page, .monkey-duel, .monkey-duel-page,
+  .friends-page, .friends-messages, #friendsMessagesScreen,
+  .world-chat, .world-chat-panel, #worldChat,
+  .banana-market, .market-screen, #bananaMarket
+) :is(button, .button, .btn):not(.danger):not(.delete):not(.kick):not(.logout):not(.active):not(.selected) {
+  background-color: var(--fm-theme-button) !important;
+  color: var(--fm-theme-text) !important;
+}
+
+/* Search fields and chat composers must not keep the old dark-green fill. */
+:is(
+  .collection-index-modal, .collection-index, #collectionIndexModal,
+  .music-options-modal, .music-options, #musicOptionsModal,
+  .global-live-activity, .live-activity-modal, #globalLiveActivity,
+  .world-chat, .world-chat-panel, #worldChat,
+  .friends-page, .friends-messages, #friendsMessagesScreen,
+  .online-modes, .online-defense, .online-race, .monkey-duel
+) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]), textarea) {
+  background-color: var(--fm-theme-input) !important;
+  color: var(--fm-theme-text) !important;
+  border-color: var(--fm-theme-border) !important;
+}
+
+/* Monkey World HUD panels were historically rendered outside the page shell. */
+:is(
+  [class*="world-chat"], [id*="worldChat"],
+  [class*="landmark-card"], [class*="world-landmark"],
+  [class*="controls-hint"], [class*="world-controls"],
+  [class*="emote-wheel"], [id*="emoteWheel"]
+) {
+  --panel-bg: var(--fm-theme-panel);
+  --card-bg: var(--fm-theme-card);
+  --button-bg: var(--fm-theme-button);
+  border-color: var(--fm-theme-border) !important;
+}
+
+/* Text follows the equipped theme without reducing readability. */
+:is(
+  .collection-index-modal, .collection-index, #collectionIndexModal,
+  .music-options-modal, .music-options, #musicOptionsModal,
+  .global-live-activity, .live-activity-modal, #globalLiveActivity,
+  .online-modes, .online-defense, .defense-guide, .online-race,
+  .monkey-duel, .friends-page, .friends-messages,
+  .world-chat, .monkey-world-emote-wheel, .emote-wheel
+) :is(h1, h2, h3, h4, label, strong) {
+  color: var(--fm-theme-text) !important;
+}
+
+@media (max-width: 820px) {
+  #settingsModal .settings-grid,
+  .settings-modal .settings-grid,
+  .settings-content .settings-grid {
+    grid-template-columns: 1fr !important;
+  }
+}

@@ -6,3 +6,34 @@ dist/
 *.asar
 .DS_Store
 Thumbs.db
+server-data/
+multiplayer-config.json
+.env
+.env.*
+*.bak
+github-server-upload/
+tmp/
+.agents/
+*.log
+__pycache__/
+*.pyc
+_aura-visual-check.html
+
+# Private multiplayer/server source stays in the separate private server repo.
+multiplayer-server.js
+online-defense-server.js
+monkey-world-events-server.js
+monkey-duel-server.js
+multiplayer-server.test.js
+smtp-test.js
+preview-server.js
+ONLINE_SETUP.md
+
+# Local verification and project-maintenance files are not part of the game client.
+*.test.js
+check-inline-scripts.js
+process-crate-icons.py
+process-open-crate-icons.py
+BUILD-AND-UPLOAD-GAME-EXE.txt
+CURRENT-REQUEST-AUDIT.md
+FEATURE-IMPLEMENTATION-CHECKLIST.md

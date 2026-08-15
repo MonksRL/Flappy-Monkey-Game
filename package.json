@@ -1,26 +1,99 @@
 {
   "name": "flappy-monkey",
-  "version": "1.0.0",
-  "description": "Flappy Monkey",
+  "version": "1.9.6",
+  "description": "Flappy Monkey - Made by monksrl on Discord!",
   "main": "main.js",
+  "author": "ItzMonksRL",
+  "license": "MIT",
+  "private": true,
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder",
-    "dist": "electron-builder --win --x64"
+    "preview": "node preview-server.js",
+    "multiplayer-server": "node multiplayer-server.js",
+    "test:account-storage": "node account-storage.test.js",
+    "test:offline-profile": "node offline-profile.test.js",
+    "test:birthday-event": "node birthday-event.test.js",
+    "test:discord-presence": "node discord-presence.test.js",
+    "test:monkey-world-gifs": "node monkey-world-animated-skin.test.js",
+    "test:monkey-world-events": "node monkey-world-events.test.js",
+    "test:service-worker": "node service-worker.test.js",
+    "test:multiplayer": "node multiplayer-server.test.js",
+    "test:email": "node smtp-test.js",
+    "clean": "rimraf dist",
+    "dist": "npm run clean && electron-builder",
+    "dist:win": "npm run clean && electron-builder --win",
+    "publish": "npm run clean && electron-builder --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "nodemailer": "^9.0.3",
+    "pg": "^8.16.3",
+    "three": "^0.185.1",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "rimraf": "^6.1.3"
   },
   "build": {
     "appId": "com.monksrl.flappymonkey",
     "productName": "Flappy Monkey",
     "directories": {
-      "buildResources": "."
+      "output": "dist"
     },
     "files": [
       "**/*",
-      "!node_modules"
+      "!node_modules",
+      "!dist",
+      "!tmp{,/**/*}",
+      "!*.log",
+      "!.git",
+      "!server-data{,/**/*}",
+      "!github-server-upload{,/**/*}",
+      "!multiplayer-server.js",
+      "!online-defense-server.js",
+      "!multiplayer-server.test.js",
+      "!account-storage.test.js",
+      "!offline-profile.test.js",
+      "!birthday-event.test.js",
+      "!discord-presence.test.js",
+      "!monkey-world-events.test.js",
+      "!monkey-world-animated-skin.test.js",
+      "!service-worker.test.js",
+      "!multiplayer-config.json",
+      "!smtp-test.js",
+      "!preview-server.js",
+      "!ONLINE_SETUP.md",
+      "!BUILD-AND-UPLOAD-GAME-EXE.txt",
+      "!CURRENT-REQUEST-AUDIT.md",
+      "!FEATURE-IMPLEMENTATION-CHECKLIST.md",
+      "!*.bak"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "node_modules/electron-updater",
+        "to": "node_modules/electron-updater"
+      }
     ],
     "win": {
-      "target": ["nsis"],
-      "icon": "favicon.ico"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.ico",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
     },
     "publish": [
       {
@@ -29,10 +102,5 @@
         "repo": "flappy-monkey"
       }
     ]
-  },
-  "devDependencies": {
-    "electron": "^34.0.0",
-    "electron-builder": "^25.1.8",
-    "electron-updater": "^6.3.9"
   }
 }

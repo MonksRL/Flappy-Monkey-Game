@@ -1,0 +1,132 @@
+#mwEventHud {
+    position: absolute;
+    left: 50%;
+    top: 12px;
+    z-index: 18;
+    width: min(620px, calc(100% - 250px));
+    padding: 10px 14px;
+    border: 1px solid rgba(255, 230, 119, .62);
+    border-radius: 16px;
+    color: #effff7;
+    background: linear-gradient(145deg, rgba(4, 31, 28, .95), rgba(18, 50, 43, .94));
+    box-shadow: 0 14px 34px rgba(0, 0, 0, .38), inset 0 1px rgba(255, 255, 255, .1);
+    pointer-events: none;
+    transform: translateX(-50%);
+}
+
+#mwEventHud.mw-event-hidden,
+#mwEventLeaderboard.mw-event-hidden,
+#mwEventActions.mw-event-hidden,
+#mwEventRespawn.mw-event-hidden { display: none !important; }
+
+.mw-event-hud-head { display: flex; align-items: center; gap: 10px; }
+.mw-event-hud-icon { font-size: 27px; filter: drop-shadow(0 3px 5px rgba(0,0,0,.4)); }
+.mw-event-hud-copy { min-width: 0; flex: 1; }
+.mw-event-hud-copy strong { display: block; color: #ffe77c; font-size: 15px; letter-spacing: .06em; }
+.mw-event-hud-copy span { display: block; overflow: hidden; color: #b9d4c8; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.mw-event-timer { color: #fff5bf; font-size: 13px; font-weight: 1000; }
+.mw-event-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.mw-event-bar { position: relative; height: 17px; overflow: hidden; border: 1px solid rgba(255,255,255,.17); border-radius: 999px; background: rgba(0,0,0,.42); }
+.mw-event-bar > i { display: block; height: 100%; border-radius: inherit; transition: width .22s ease; }
+.mw-event-bar > span { position: absolute; inset: 0; display: grid; place-items: center; color: white; font-size: 8px; font-style: normal; font-weight: 1000; text-shadow: 0 1px 3px black; }
+.mw-event-health i { background: linear-gradient(90deg,#e93b4e,#ff7885); }
+.mw-event-shield i { background: linear-gradient(90deg,#2788ff,#6de8ff); }
+.mw-event-boss { grid-column: 1 / -1; }
+.mw-event-boss i { background: linear-gradient(90deg,#ff392d,#ffb329); }
+
+#mwEventActions {
+    position: absolute;
+    left: 50%;
+    bottom: 22px;
+    z-index: 19;
+    display: flex;
+    gap: 8px;
+    transform: translateX(-50%);
+}
+
+#mwEventActions button {
+    min-width: 120px;
+    padding: 10px 14px;
+    border: 2px solid rgba(255,239,155,.72);
+    border-radius: 12px;
+    color: #231c02;
+    background: linear-gradient(145deg,#fff19a,#e1b73c);
+    box-shadow: 0 9px 22px rgba(0,0,0,.34);
+    font-size: 11px;
+    font-weight: 1000;
+    cursor: pointer;
+}
+
+#mwEventLeaderboard {
+    position: absolute;
+    right: 14px;
+    top: 92px;
+    z-index: 18;
+    width: 225px;
+    max-height: min(62vh, 560px);
+    padding: 11px;
+    overflow-y: auto;
+    border: 1px solid rgba(112, 229, 184, .45);
+    border-radius: 15px;
+    color: #eafff4;
+    background: rgba(3, 29, 26, .93);
+    box-shadow: 0 12px 30px rgba(0,0,0,.34);
+}
+
+#mwEventLeaderboard h3 { margin: 0 0 8px; color: #ffe57a; font-size: 13px; letter-spacing: .05em; text-align: center; }
+.mw-event-leader-row { display: grid; grid-template-columns: 25px 1fr auto; align-items: center; gap: 6px; padding: 7px 5px; border-top: 1px solid rgba(255,255,255,.08); }
+.mw-event-leader-row:first-of-type { border-top: 0; }
+.mw-event-place { color: #ffe36c; font-size: 11px; font-weight: 1000; }
+.mw-event-player-name { overflow: hidden; font-size: 10px; font-weight: 1000; text-overflow: ellipsis; white-space: nowrap; }
+.mw-event-player-title { display: block; overflow: hidden; margin-top: 2px; color: var(--event-title-color,#fff); font-size: 7px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 0 5px currentColor; }
+.mw-event-player-title.rgb { animation: mw-event-rgb var(--event-title-speed,3s) linear infinite; }
+.mw-event-player-title.gradient { color:transparent; -webkit-text-fill-color:transparent; background:linear-gradient(90deg,#ff5576,#ffd95a,#63f5aa,#62d9ff,#a881ff,#ff6cdc,#ff5576); background-size:260% 100%; -webkit-background-clip:text; background-clip:text; animation:mw-event-gradient var(--event-title-speed,3s) linear infinite; text-shadow:none; }
+.mw-event-player-title.glow:not(.gradient) { text-shadow:0 0 4px currentColor,0 0 9px currentColor; }
+.mw-event-player-title.gradient.glow { filter:drop-shadow(0 0 4px rgba(98,217,255,.75)); }
+.mw-event-player-title.glitch { text-shadow: -1px 0 #00efff, 1px 0 #ff43c8; }
+.mw-event-player-title.fire { color: #fff0a8; text-shadow: 0 0 7px #ff5b24; }
+.mw-event-player-title.sparkle { color: #fff8c9; text-shadow: 0 0 7px #fff284; }
+.mw-event-score { color: #9ff4c7; font-size: 11px; font-weight: 1000; }
+@keyframes mw-event-rgb { 0%{color:#ff6c8c} 33%{color:#62ecff} 66%{color:#8dff76} 100%{color:#ff6c8c} }
+@keyframes mw-event-gradient { to{background-position:260% 0} }
+
+#mwEventRespawn {
+    position: absolute;
+    inset: 0;
+    z-index: 22;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    background: rgba(2,9,14,.5);
+    font: 1000 clamp(30px,7vw,76px) Arial;
+    text-align: center;
+    text-shadow: 0 8px 25px #000;
+    pointer-events: none;
+}
+#mwEventRespawn small { display:block; color:#add8c5; font-size:14px; letter-spacing:.08em; }
+
+#mwEventRewardModal {
+    position: fixed;
+    inset: 0;
+    z-index: 30000;
+    display: none;
+    place-items: center;
+    padding: 18px;
+    background: rgba(0,0,0,.76);
+}
+#mwEventRewardModal.open { display: grid; }
+.mw-event-reward-box { width: min(500px, 96vw); padding: 23px; border: 2px solid #ffe472; border-radius: 22px; color:#edfff5; background:radial-gradient(circle at 50% 0,rgba(255,221,85,.2),transparent 48%),#08251e; box-shadow:0 24px 80px rgba(0,0,0,.62); text-align:center; }
+.mw-event-reward-box h2 { margin:0 0 5px; color:#ffe77c; font-size:25px; }
+.mw-event-reward-box p { margin:0 0 15px; color:#b9d5c8; font-size:11px; }
+.mw-event-reward-items { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; }
+.mw-event-reward-item { width:130px; padding:10px; border:1px solid rgba(255,235,145,.34); border-radius:14px; background:rgba(255,255,255,.07); }
+.mw-event-reward-item img { width:76px; height:76px; object-fit:contain; filter:drop-shadow(0 6px 8px rgba(0,0,0,.38)); }
+.mw-event-reward-item strong { display:block; margin-top:6px; color:#fff5b7; font-size:10px; }
+.mw-event-reward-box button { margin-top:17px; padding:10px 28px; border:1px solid #fff0a2; border-radius:11px; color:#221b00; background:linear-gradient(145deg,#fff2a3,#dcb83f); font-weight:1000; cursor:pointer; }
+
+@media (max-width: 760px) {
+    #mwEventHud { top: 7px; width: calc(100% - 16px); }
+    #mwEventLeaderboard { right: 6px; top: 100px; width: 180px; max-height: 42vh; }
+    #mwEventActions { bottom: 98px; }
+    #mwEventActions button { min-width: 92px; padding: 9px 8px; font-size: 9px; }
+}

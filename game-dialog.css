@@ -1,0 +1,181 @@
+.fm-dialog-layer {
+    position: fixed;
+    inset: 0;
+    /* Stay above multiplayer sub-modals such as Ranked owner controls. */
+    z-index: 2147483646;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background:
+        radial-gradient(circle at 50% 38%, rgba(60, 144, 91, .19), transparent 38%),
+        rgba(0, 14, 10, .78);
+    -webkit-backdrop-filter: blur(7px);
+    backdrop-filter: blur(7px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .16s ease, visibility .16s ease;
+}
+.fm-dialog-layer.open { opacity: 1; visibility: visible; }
+.fm-dialog-card {
+    position: relative;
+    width: min(450px, calc(100vw - 32px));
+    overflow: hidden;
+    border: 2px solid #477e5b;
+    border-radius: 19px;
+    color: #eef8f0;
+    background: linear-gradient(155deg, #123f2c, #06261d 74%);
+    box-shadow:
+        0 24px 70px rgba(0, 0, 0, .6),
+        0 0 0 4px rgba(0, 0, 0, .2),
+        inset 0 1px 0 rgba(255, 255, 255, .07);
+    transform: translateY(10px) scale(.97);
+    transition: transform .18s cubic-bezier(.2, .85, .25, 1.12);
+}
+.fm-dialog-layer.open .fm-dialog-card { transform: translateY(0) scale(1); }
+.fm-dialog-accent {
+    height: 5px;
+    background: linear-gradient(90deg, #ffe064, #f5bd23 48%, #83e978);
+    box-shadow: 0 2px 14px rgba(255, 213, 71, .35);
+}
+.fm-dialog-layer.danger .fm-dialog-accent {
+    background: linear-gradient(90deg, #ff6977, #d3374c 52%, #ff9f68);
+    box-shadow: 0 2px 14px rgba(255, 89, 108, .32);
+}
+.fm-dialog-body { padding: 21px 22px 18px; }
+.fm-dialog-heading { display: flex; align-items: center; gap: 12px; }
+.fm-dialog-icon {
+    display: grid;
+    flex: 0 0 43px;
+    width: 43px;
+    height: 43px;
+    place-items: center;
+    border: 1px solid rgba(255, 225, 100, .5);
+    border-radius: 13px;
+    color: #ffe064;
+    background: rgba(255, 225, 100, .1);
+    font-size: 23px;
+    line-height: 1;
+}
+.fm-dialog-layer.danger .fm-dialog-icon {
+    border-color: rgba(255, 110, 124, .55);
+    color: #ff929d;
+    background: rgba(255, 78, 97, .12);
+}
+.fm-dialog-title {
+    margin: 0;
+    color: #fff0a0;
+    font: 1000 22px/1.05 Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+    letter-spacing: .035em;
+    text-transform: uppercase;
+    text-shadow: 0 3px 0 rgba(0, 0, 0, .26);
+}
+.fm-dialog-message {
+    margin: 17px 0 0;
+    color: #cfe1d3;
+    font-size: 13px;
+    font-weight: 750;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.fm-dialog-warning {
+    margin-top: 14px;
+    padding: 10px 11px;
+    border: 1px solid rgba(255, 121, 133, .6);
+    border-left-width: 4px;
+    border-radius: 9px;
+    color: #ffd2d6;
+    background: rgba(120, 22, 37, .35);
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 1.45;
+}
+.fm-dialog-warning[hidden] { display: none; }
+.fm-dialog-input-wrap { display: none; margin-top: 15px; }
+.fm-dialog-layer.prompt .fm-dialog-input-wrap { display: block; }
+.fm-dialog-input-label {
+    display: block;
+    margin-bottom: 6px;
+    color: #a8c4ae;
+    font-size: 10px;
+    font-weight: 1000;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+.fm-dialog-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 2px solid #45785a;
+    border-radius: 10px;
+    outline: none;
+    color: #fff2a9;
+    background: #041c15;
+    font: 850 13px/1.2 Consolas, monospace;
+}
+.fm-dialog-input:focus {
+    border-color: #ffe064;
+    box-shadow: 0 0 0 4px rgba(255, 224, 100, .12);
+}
+.fm-dialog-requirement { margin-top:7px; color:#ffb4bb; font-size:9px; font-weight:900; }
+.fm-dialog-requirement[hidden] { display:none; }
+.fm-dialog-requirement.matched { color:#8cffae; }
+.fm-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 9px;
+    margin-top: 20px;
+}
+.fm-dialog-button {
+    min-width: 108px !important;
+    min-height: 42px !important;
+    padding: 9px 16px !important;
+    border: 2px solid #4f8562 !important;
+    border-radius: 11px !important;
+    color: #f2fff5 !important;
+    background: linear-gradient(#2b6741, #174f31) !important;
+    box-shadow: 0 5px 12px rgba(0, 0, 0, .22);
+    font-size: 12px;
+    font-weight: 1000;
+    cursor: pointer;
+    transition: transform .13s ease, filter .13s ease, border-color .13s ease;
+}
+.fm-dialog-button:hover, .fm-dialog-button:focus-visible {
+    z-index: 1;
+    border-color: #ffe064;
+    filter: brightness(1.12);
+    outline: none;
+    transform: translateY(-1px);
+}
+.fm-dialog-button:disabled {
+    border-color:#53675a !important;
+    color:#83988a !important;
+    background:#243a2e !important;
+    box-shadow:none;
+    cursor:not-allowed;
+    filter:saturate(.35);
+    transform:none;
+}
+.fm-dialog-button.primary {
+    border-color: #f5c62d !important;
+    color: #18251b !important;
+    background: linear-gradient(#ffe36d, #efbd24) !important;
+}
+.fm-dialog-layer.danger .fm-dialog-button.primary {
+    border-color: #ff8490 !important;
+    color: #fff4f5 !important;
+    background: linear-gradient(#a62b3f, #731a29) !important;
+}
+.fm-dialog-layer.alert .fm-dialog-cancel { display: none; }
+body.fm-dialog-open { overflow: hidden !important; }
+@media (max-width: 520px) {
+    .fm-dialog-layer { padding: 12px; }
+    .fm-dialog-body { padding: 18px 16px 15px; }
+    .fm-dialog-title { font-size: 19px; }
+    .fm-dialog-actions { align-items: stretch; flex-direction: column-reverse; }
+    .fm-dialog-button { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .fm-dialog-layer, .fm-dialog-card { transition: none; }
+}
