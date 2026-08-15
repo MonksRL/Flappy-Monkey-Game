@@ -200,12 +200,33 @@
         modal?.setAttribute('aria-hidden','true');
     }
 
+    function updateCombatLifeState(effect) {
+        if (!event?.combat || !effect) return;
+        const profileId = String(effect.kind === 'respawn' ? effect.playerId || '' : effect.targetId || '');
+        if (!profileId) return;
+        const alive = effect.kind === 'respawn';
+        const updateStats = (stats) => {
+            if (!stats) return;
+            stats.alive = alive;
+            stats.health = alive ? 100 : 0;
+            stats.respawnAt = alive ? 0 : Number(effect.respawnAt || 0);
+            if (alive && event.shield) stats.shield = 50;
+        };
+        updateStats((event.leaderboard || []).find((entry) => String(entry.profileId || '') === profileId));
+        if (profileId === String(localId())) updateStats(event.localStats);
+    }
+
     function handleMessage(message) {
         if (message.type === 'monkey_world_event_effect') {
-            effects.push({ ...(message.effect || {}), localAt:performance.now() }); effects = effects.slice(-80);
-            window.dispatchEvent(new CustomEvent('flappy-monkey-world-event-effect', { detail:{ ...(message.effect || {}), eventId:message.eventId || '' } }));
-            if (message.effect?.kind === 'respawn' && message.effect.playerId === localId()) bridge?.teleport?.(message.effect.x,message.effect.y);
-            if (['event_start','event_end','wave','dance_combo'].includes(message.effect?.kind) && message.effect.text) bridge?.toast?.(message.effect.text);
+            const effect = message.effect || {};
+            if (effect.kind === 'respawn' || effect.kind === 'elimination') updateCombatLifeState(effect);
+            effects.push({ ...effect, localAt:performance.now() }); effects = effects.slice(-80);
+            window.dispatchEvent(new CustomEvent('flappy-monkey-world-event-effect', { detail:{ ...effect, eventId:message.eventId || '' } }));
+            if (effect.kind === 'respawn' && String(effect.playerId || '') === String(localId()) && Number.isFinite(Number(effect.x)) && Number.isFinite(Number(effect.y))) {
+                bridge?.teleport?.(Number(effect.x),Number(effect.y));
+            }
+            if (effect.kind === 'respawn' || effect.kind === 'elimination') renderHud();
+            if (['event_start','event_end','wave','dance_combo'].includes(effect.kind) && effect.text) bridge?.toast?.(effect.text);
         } else if (message.type === 'monkey_world_event_reward') showRewards(message);
         else if (message.type === 'owner_monkey_world_event_action') bridge?.toast?.(message.message);
     }
@@ -281,21 +302,29 @@
     }
 
     function drawWoodSword(context, player, now) {
-        const recent=[...effects].reverse().find((fx)=>fx.kind==='sword_swing'&&fx.attackerId===player.profileId&&now-fx.localAt<430);
-        const progress=recent?Math.min(1,(now-recent.localAt)/430):0;
+        const recent=[...effects].reverse().find((fx)=>fx.kind==='sword_swing'&&fx.attackerId===player.profileId&&now-fx.localAt<520);
+        const progress=recent?Math.min(1,(now-recent.localAt)/520):0;
         const facing=player.direction==='left'?-1:1;
         const sword=image('assets/duel/runtime/sword-wood-world.png?v=20260815b');
-        const baseAngle=player.direction==='up' ? -.72 : player.direction==='down' ? .35 : -.08;
-        const swing=recent?(-1.02+Math.sin(progress*Math.PI)*1.9):Math.sin(now*.0025+player.x)*.035;
+        const idleAngle=(player.direction==='up'?-.42:player.direction==='down'?.42:-.16)+Math.sin(now*.0025+player.x)*.025;
+        const ease=(value)=>value*value*(3-2*value);
+        let swordAngle=idleAngle;
+        if(recent){
+            if(progress<.18){const t=ease(progress/.18);swordAngle=idleAngle+(-.92-idleAngle)*t;}
+            else if(progress<.58){const t=ease((progress-.18)/.4);swordAngle=-.92+(1.02+.92)*t;}
+            else{const t=ease((progress-.58)/.42);swordAngle=1.02+(idleAngle-1.02)*t;}
+        }
         context.save();
-        context.translate(player.x+facing*39,player.y-48);
+        // The transform origin is the sword handle, so the weapon stays in the
+        // monkey's hand throughout the wind-up, strike, and recovery phases.
+        context.translate(player.x+facing*19,player.y-22);
         context.scale(facing,1);
-        context.rotate(baseAngle+swing);
+        context.rotate(swordAngle);
         context.shadowColor=recent?'#ffe678':'rgba(0,0,0,.7)';context.shadowBlur=recent?18:8;
         // Use the same recognizable Wood Sword art as Monkey Duel, cropped to
         // a transparent runtime asset and anchored at the handle. Keeping it
         // below the monkey's full height prevents the weapon hiding the skin.
-        if(sword.complete&&sword.naturalWidth)context.drawImage(sword,-44,-44,82,82);
+        if(sword.complete&&sword.naturalWidth)context.drawImage(sword,141,0,1051,1254,-4,-74,62,74);
         context.restore();
 
         if(recent){

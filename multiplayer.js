@@ -226,6 +226,7 @@
     const monkeyWorldEventAudio = { type:'', track:null, config:null, mainPaused:false };
     const monkeyWorldEventOneShots = new Set();
     const monkeyWorldEmoteAudio = new Map();
+    let monkeyWorldEmoteFocusId = '';
 
     function eventAudioChannelVolume(channel) {
         const defaults = { music:70, effects:80, ambience:50 };
@@ -374,10 +375,17 @@
         }
     }
 
-    function stopWorldEmoteAudio(profileId, fadeMs = 450) {
+    function stopWorldEmoteAudio(profileId, fadeMs = 450, refreshFocus = true) {
         const key=String(profileId||''),entry=monkeyWorldEmoteAudio.get(key);if(!entry)return;
         monkeyWorldEmoteAudio.delete(key);clearTimeout(entry.timer);
-        fadeEventAudio(entry.audio,0,fadeMs,()=>{entry.audio.pause();entry.audio.remove();});
+        // requestAnimationFrame pauses in a background tab, so an RAF fade
+        // cannot be responsible for stopping canceled emote music there.
+        if(document.hidden||fadeMs<=0){
+            if(entry.audio.__flappyFadeFrame)cancelAnimationFrame(entry.audio.__flappyFadeFrame);
+            entry.audio.pause();entry.audio.remove();
+        }else fadeEventAudio(entry.audio,0,fadeMs,()=>{entry.audio.pause();entry.audio.remove();});
+        if(monkeyWorldEmoteFocusId===key)monkeyWorldEmoteFocusId='';
+        if(refreshFocus)updateWorldEmoteAudio({ immediate:true });
     }
 
     function startWorldEmoteAudio(action = {}) {
@@ -387,7 +395,7 @@
         if(previous?.startedAt===Number(action.startedAt||0)&&previous.id===id)return;
         stopWorldEmoteAudio(profileId,120);
         const audio=new Audio(definition.audio);audio.preload='auto';audio.loop=Boolean(definition.loop);audio.volume=0;audio.dataset.monkeyWorldEmote=id;document.body.appendChild(audio);
-        const entry={id,profileId,audio,startedAt:Number(action.startedAt)||Date.now(),x:Number(action.x),y:Number(action.y),timer:0};
+        const entry={id,profileId,audio,startedAt:Number(action.startedAt)||Date.now(),until:Number(action.until)||0,x:Number(action.x),y:Number(action.y),timer:0};
         monkeyWorldEmoteAudio.set(profileId,entry);
         const actionDuration=Math.max(0,Number(action.until||0)-Number(action.startedAt||0));
         const duration=Math.max(1200,Math.min(actionDuration||Number(definition.duration)||6500,86_400_000));
@@ -401,19 +409,32 @@
             audio.currentTime=0;
             audio.play().catch(()=>{});
         });
-        updateWorldEmoteAudio();
-        if(audio.volume>0)audio.play().then(()=>fadeEventAudio(audio,audio.__targetVolume||0,350)).catch(()=>stopWorldEmoteAudio(profileId,0));
+        updateWorldEmoteAudio({ immediate:true });
     }
 
-    function updateWorldEmoteAudio() {
+    function updateWorldEmoteAudio({ immediate = false } = {}) {
+        const accountId=String(state.account?.id||''),serverNow=Date.now()+Number(state.serverOffset||0);
+        const localActive=Boolean(monkeyWorld.localEmote&&Number(monkeyWorld.localEmote.until||0)>serverNow&&monkeyWorldEmoteAudio.has(accountId));
+        let focusId=localActive?accountId:'';
+        if(!focusId){
+            let closest=Infinity;
+            for(const [profileId,entry] of monkeyWorldEmoteAudio){
+                if(Number(entry.until||0)>0&&Number(entry.until)<=serverNow)continue;
+                const player=[...monkeyWorld.players.values()].find(item=>String(item.profileId||'')===profileId);
+                const x=Number(player?.x??entry.x),y=Number(player?.y??entry.y),distance=Math.hypot(monkeyWorld.x-x,monkeyWorld.y-y);
+                if(distance<closest){closest=distance;focusId=profileId;}
+            }
+        }
+        const focusChanged=focusId!==monkeyWorldEmoteFocusId;
+        monkeyWorldEmoteFocusId=focusId;
         for(const [profileId,entry] of monkeyWorldEmoteAudio){
-            const player=[...monkeyWorld.players.values()].find(item=>item.profileId===profileId);
-            const x=profileId===state.account?.id?monkeyWorld.x:Number(player?.x??entry.x),y=profileId===state.account?.id?monkeyWorld.y:Number(player?.y??entry.y);
+            const player=[...monkeyWorld.players.values()].find(item=>String(item.profileId||'')===profileId);
+            const x=profileId===accountId?monkeyWorld.x:Number(player?.x??entry.x),y=profileId===accountId?monkeyWorld.y:Number(player?.y??entry.y);
             const distance=Math.hypot(monkeyWorld.x-x,monkeyWorld.y-y);
             // Local audio remains clear. Remote music is full nearby, eases out
             // through conversational distance, and is completely silent once
             // the performer is far away.
-            const spatial=profileId===state.account?.id
+            const spatial=profileId===accountId
                 ?1
                 :distance<=150
                     ?1
@@ -423,13 +444,39 @@
             // Emote songs use the music-volume slider, but the lobby/game music
             // on/off button must not silence them. They have their own explicit
             // setting because an emote is a player action, not background music.
-            const target=.72*emoteAudioVolume()*spatial;entry.audio.__targetVolume=target;
+            // Emote music is a single listener mix, like Fortnite: your own
+            // emote always wins. Otherwise only the closest audible performer
+            // is heard, so two nearby music emotes never stack into noise.
+            const target=profileId===focusId ? .72*emoteAudioVolume()*spatial : 0;entry.audio.__targetVolume=target;
             if(target>0&&entry.audio.paused)entry.audio.play().catch(()=>{});
-            entry.audio.volume=Math.max(0,Math.min(1,entry.audio.volume+(target-entry.audio.volume)*.18));
+            if(document.hidden){
+                if(entry.audio.__flappyFadeFrame)cancelAnimationFrame(entry.audio.__flappyFadeFrame);
+                entry.audio.__flappyFadeFrame=0;entry.audio.volume=Math.max(0,Math.min(1,target));
+                if(target<=0&&!entry.audio.paused)entry.audio.pause();
+            }else if(focusChanged||immediate)fadeEventAudio(entry.audio,target,target>0?180:110);
+            else entry.audio.volume=Math.max(0,Math.min(1,entry.audio.volume+(target-entry.audio.volume)*.18));
         }
     }
 
-    function stopAllWorldEmoteAudio(){for(const profileId of [...monkeyWorldEmoteAudio.keys()])stopWorldEmoteAudio(profileId,300);}
+    function reconcileWorldEmoteAudioFromRoster(){
+        const serverNow=Date.now()+Number(state.serverOffset||0),active=new Map();
+        for(const player of monkeyWorld.players.values()){
+            if(!player?.emoteId||Number(player.emoteUntil||0)<=serverNow)continue;
+            const profileId=String(player.profileId||'');
+            if(profileId)active.set(profileId,{id:String(player.emoteId),profileId,startedAt:Number(player.emoteStartedAt)||serverNow,until:Number(player.emoteUntil),x:Number(player.x),y:Number(player.y)});
+        }
+        const accountId=String(state.account?.id||''),optimisticLocal=monkeyWorld.localEmote&&serverNow-Number(monkeyWorld.localEmote.startedAt||0)<1800;
+        if(optimisticLocal&&!active.has(accountId))active.set(accountId,monkeyWorld.localEmote);
+        for(const action of active.values())startWorldEmoteAudio(action);
+        for(const profileId of [...monkeyWorldEmoteAudio.keys()])if(!active.has(profileId))stopWorldEmoteAudio(profileId,120,false);
+        if(!active.has(accountId)&&!optimisticLocal)monkeyWorld.localEmote=null;
+        updateWorldEmoteAudio({ immediate:true });
+    }
+
+    function stopAllWorldEmoteAudio(){
+        for(const profileId of [...monkeyWorldEmoteAudio.keys()])stopWorldEmoteAudio(profileId,300,false);
+        monkeyWorldEmoteFocusId='';
+    }
 
     function cancelLocalWorldEmote(notifyServer=true){
         const action=monkeyWorld.localEmote;if(!action)return false;
@@ -454,6 +501,10 @@
         if (['musicVolumeSetting','effectsVolumeSetting','ambienceVolumeSetting'].includes(event.target?.id)) { syncMonkeyWorldEventAudio(); updateWorldEmoteAudio(); }
     });
     window.addEventListener('flappy-emote-audio-setting-changed', updateWorldEmoteAudio);
+    document.addEventListener('visibilitychange',()=>{
+        if(!document.hidden)reconcileWorldEmoteAudioFromRoster();
+        else updateWorldEmoteAudio({ immediate:true });
+    });
     const onlineDefense = {
         room: null,
         rank: null,
@@ -1944,6 +1995,10 @@
         monkeyWorld.resumeAfterReconnect = null;
         monkeyWorld.messages = Array.isArray(world.messages) ? world.messages : [];
         monkeyWorld.players = new Map((world.players || []).map((player) => [player.id, { ...player, receivedAt: performance.now() }]));
+        // Full world snapshots are authoritative even while requestAnimationFrame
+        // is suspended in a background tab. Reconcile music here so a missed or
+        // delayed stop packet cannot leave a canceled remote emote playing.
+        reconcileWorldEmoteAudioFromRoster();
         window.FlappyWorldEvents?.syncWorld?.(world);
         syncMonkeyWorldEventAudio(world?.event || null);
         if (world.event && monkeyWorld.currentInterior) {
@@ -2643,10 +2698,19 @@
     function drawMonkeyWorld(now = performance.now()) {
         const renderStats=window.__flappyRenderStats||(window.__flappyRenderStats={worldFrames:0,lastWorldFrameAt:0});
         renderStats.worldFrames+=1;renderStats.lastWorldFrameAt=now;
-        const players = [...monkeyWorld.players.values()].filter((player) => player.profileId !== state.account?.id);
-        players.push({ ...(monkeyWorld.players.get([...monkeyWorld.players.keys()].find((id) => monkeyWorld.players.get(id)?.profileId === state.account?.id)) || {}), profileId: state.account?.id, username: state.account?.username || 'You', platform:state.account?.platform || (LOCAL_MOBILE_DEVICE ? 'mobile' : 'pc'), skin: currentSkin(), aura:currentAura(), banner:currentBanner(), equippedTitle: currentTitle(), titleStyle: currentTitleStyle(), nameStyle: currentNameStyle(), level: state.account?.level || 1, clan: state.account?.clan, ranked: state.account?.ranked, x: monkeyWorld.x, y: monkeyWorld.y, direction: monkeyWorld.direction, moving: monkeyWorld.moving, emoteId:monkeyWorld.localEmote?.id||'', emoteStartedAt:monkeyWorld.localEmote?.startedAt||0, emoteUntil:monkeyWorld.localEmote?.until||0 });
-        players.sort((first, second) => first.y - second.y);
         const worldEvent = window.FlappyWorldEvents?.current?.() || null;
+        const allPlayers = [...monkeyWorld.players.values()].filter((player) => player.profileId !== state.account?.id);
+        allPlayers.push({ ...(monkeyWorld.players.get([...monkeyWorld.players.keys()].find((id) => monkeyWorld.players.get(id)?.profileId === state.account?.id)) || {}), profileId: state.account?.id, username: state.account?.username || 'You', platform:state.account?.platform || (LOCAL_MOBILE_DEVICE ? 'mobile' : 'pc'), skin: currentSkin(), aura:currentAura(), banner:currentBanner(), equippedTitle: currentTitle(), titleStyle: currentTitleStyle(), nameStyle: currentNameStyle(), level: state.account?.level || 1, clan: state.account?.clan, ranked: state.account?.ranked, x: monkeyWorld.x, y: monkeyWorld.y, direction: monkeyWorld.direction, moving: monkeyWorld.moving, emoteId:monkeyWorld.localEmote?.id||'', emoteStartedAt:monkeyWorld.localEmote?.startedAt||0, emoteUntil:monkeyWorld.localEmote?.until||0 });
+        // A defeated combatant must disappear for the whole authoritative
+        // respawn countdown. Passing dead players to the shared renderers left
+        // their normal skin behind after the event sword had disappeared.
+        const hiddenCombatants = worldEvent?.combat
+            ? new Set((worldEvent.leaderboard || []).filter((entry) => entry.alive === false).map((entry) => String(entry.profileId || '')))
+            : null;
+        const players = hiddenCombatants
+            ? allPlayers.filter((player) => !hiddenCombatants.has(String(player.profileId || '')))
+            : allPlayers;
+        players.sort((first, second) => first.y - second.y);
         const normalPhase = monkeyWorldPhase();
         const eventNight = ['firework_festival', 'dance_party'].includes(worldEvent?.type);
         const phase = eventNight
@@ -2755,7 +2819,7 @@
         ({ dx, dy } = window.FlappyWorldEvents?.modifyMovement?.(dx, dy, delta) || { dx, dy });
         const length = Math.hypot(dx, dy) || 1;
         const insideBuilding = Boolean(monkeyWorld.currentInterior);
-        if(monkeyWorld.localEmote&&Date.now()+state.serverOffset>=monkeyWorld.localEmote.until)monkeyWorld.localEmote=null;
+        if(monkeyWorld.localEmote&&Date.now()+state.serverOffset>=monkeyWorld.localEmote.until)cancelLocalWorldEmote(false);
         const externalWorldMenuOpen = worldExternalMenuVisible();
         const worldBuildingMenuOpen = Boolean(elements.mwBuildingModal?.classList.contains('open'));
         const emoteWheelOpen = Boolean(document.getElementById('mwEmoteWheel')?.classList.contains('open'));
