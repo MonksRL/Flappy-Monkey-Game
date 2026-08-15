@@ -134,6 +134,13 @@
         serverProtocolVersion: 0,
         serverBuild: '',
         serverCapabilities: [],
+        discordLink: {
+            configured: null,
+            connection: readBestCachedProfile(DEFAULT_SERVER)?.discordConnection || null,
+            pending: false,
+            error: '',
+            inviteUrl: 'https://discord.gg/HCmAVTNtNe'
+        },
         socialMessageMediaCache: new Map(),
         socialProfilePictureCache: new Map(),
         socialGroupIconCache: new Map(),
@@ -3228,6 +3235,10 @@
         cancelReconnect();
         state.authenticated = false;
         state.account = null;
+        state.discordLink.connection = null;
+        state.discordLink.pending = false;
+        state.discordLink.error = '';
+        discordLinkSettingsRenderSignature = '';
         lastCosmeticsSignature = '';
         state.room = null;
         state.social = { friends: [], incoming: [], outgoing: [], blocked: [], groups: [], messages: [] };
@@ -3930,6 +3941,7 @@
 
     function persistProfile(account) {
         state.account = account;
+        if (Object.hasOwn(account, 'discordConnection')) state.discordLink.connection = account.discordConnection || null;
         const localXp = Math.max(0, Number.parseInt(localStorage.getItem('monkeyXP') || '0', 10) || 0);
         const serverXp = Math.max(0, Math.floor(Number(account.totalXP) || 0));
         const pendingAuthoritativeXp = [...(account.pendingGrants || [])].reverse()
@@ -3964,6 +3976,7 @@
             account.ranked,
             account.entitlements,
             account.unlockedSkins,
+            account.discordConnection,
             (account.pendingGrants || []).map(grant => grant.id)
         ]);
         if (profileDispatchSignature !== lastOnlineProfileDispatchSignature) {
@@ -3972,6 +3985,7 @@
         }
         applyAccountRewards(account);
         renderAccount();
+        updateDiscordLinkSettingsPanel();
         const localPicture = localStorage.getItem('profilePic') || '';
         if (state.authenticated && !account.profilePicture && /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(localPicture) && localPicture !== lastProfilePictureUpload) {
             lastProfilePictureUpload = localPicture;
@@ -4470,6 +4484,7 @@
             send({ type: 'get_clan' });
             send({ type: 'get_ranked' });
             send({ type: 'get_live_event' });
+            send({ type: 'discord_link_get' });
             if (monkeyWorld.resumeAfterReconnect && elements.monkeyWorldScreen.classList.contains('open')) {
                 send(monkeyWorldJoinRequest());
             }
@@ -4477,6 +4492,29 @@
             unlockAccountGate();
             if (message.created) showToast('Online profile created!');
             else if (!isSessionResume) showToast('Logged in successfully.');
+        } else if (message.type === 'discord_link_begin') {
+            state.discordLink.pending = true;
+            state.discordLink.error = '';
+            state.discordLink.inviteUrl = String(message.inviteUrl || state.discordLink.inviteUrl);
+            updateDiscordLinkSettingsPanel();
+            const authorizationUrl = String(message.authorizationUrl || '');
+            if (authorizationUrl) {
+                openDiscordExternal(authorizationUrl);
+                showToast('Discord opened in your browser. Finish connecting there.');
+            }
+        } else if (message.type === 'discord_link_status') {
+            state.discordLink.configured = message.configured !== false;
+            state.discordLink.connection = message.connection || null;
+            state.discordLink.pending = false;
+            state.discordLink.error = String(message.error || '');
+            state.discordLink.inviteUrl = String(message.inviteUrl || state.discordLink.inviteUrl);
+            if (state.account) {
+                state.account.discordConnection = state.discordLink.connection;
+                localStorage.setItem(profileKey(), JSON.stringify(state.account));
+            }
+            updateDiscordLinkSettingsPanel();
+            if (message.newlyLinked) showToast('Discord connected! Community role and rewards granted.');
+            else if (message.refreshed) showToast('Discord profile and roles refreshed.');
         } else if (message.type === 'auth_failed') {
             cancelReconnect();
             state.authenticated = false;
@@ -4484,6 +4522,10 @@
             localStorage.removeItem(sessionKey());
             localStorage.removeItem(profileKey());
             state.account = null;
+            state.discordLink.connection = null;
+            state.discordLink.pending = false;
+            state.discordLink.error = '';
+            discordLinkSettingsRenderSignature = '';
             state.social = { friends: [], incoming: [], outgoing: [], blocked: [], groups: [], messages: [] };
             state.activeFriendId = null;
             state.inbox = { gifts: [], receipts: [], announcements: [] };
@@ -5941,6 +5983,94 @@
 
     let redeemSettingsRenderSignature = '';
     let onlineAccountSettingsRenderSignature = '';
+    let discordLinkSettingsRenderSignature = '';
+
+    function discordRoleColor(value) {
+        const color = Math.max(0, Number(value) || 0);
+        return color ? `#${color.toString(16).padStart(6, '0')}` : '#8a72be';
+    }
+
+    function openDiscordExternal(url) {
+        const target = String(url || '').trim();
+        if (!/^https:\/\//i.test(target)) return;
+        if (typeof window.openExternalLink === 'function') window.openExternalLink(target);
+        else window.open(target, '_blank', 'noopener,noreferrer');
+    }
+
+    function updateDiscordLinkSettingsPanel() {
+        const panel = document.getElementById('discordLinkSettingsPanel');
+        if (!panel) return;
+        const connection = state.discordLink.connection || state.account?.discordConnection || null;
+        const roles = Array.isArray(connection?.roles) ? connection.roles : [];
+        const signature = JSON.stringify([
+            state.account?.id || '', Boolean(state.authenticated), state.discordLink.configured,
+            Boolean(state.discordLink.pending), state.discordLink.error,
+            connection?.discordId || '', connection?.displayName || '', connection?.avatarUrl || '',
+            roles.map((role) => `${role.id}:${role.name}:${role.color}:${role.iconUrl}`).join('|')
+        ]);
+        if (signature === discordLinkSettingsRenderSignature && panel.childElementCount) return;
+        discordLinkSettingsRenderSignature = signature;
+        if (!state.account) {
+            panel.innerHTML = '<h3>Connect Discord</h3><p class="discord-link-copy">Create or log in to a Flappy Monkey account before connecting Discord.</p>';
+            return;
+        }
+        if (!state.authenticated) {
+            panel.innerHTML = '<h3>Connect Discord</h3><p class="discord-link-copy">Reconnect to the Flappy Monkey server to view or connect your Discord account.</p>';
+            return;
+        }
+        if (!connection) {
+            const disabled = state.discordLink.pending || state.discordLink.configured === false;
+            panel.innerHTML = `
+                <div class="discord-link-intro">
+                    <div class="discord-link-mark" aria-hidden="true"><svg viewBox="0 0 127.14 96.36" role="presentation"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0 105.89 105.89 0 0 0 19.39 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-9.45 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 9.44 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 59.94 31 52.86S36 40 42.45 40s11.54 5.8 11.43 12.86-5.05 12.83-11.43 12.83Zm42.24 0c-6.28 0-11.44-5.75-11.44-12.83S78.21 40 84.69 40s11.54 5.8 11.43 12.86-5.05 12.83-11.43 12.83Z"/></svg></div>
+                    <div><h3>Connect Discord</h3><p class="discord-link-copy">Link your Discord membership to this game account. This does not replace your Flappy Monkey login.</p></div>
+                </div>
+                <div class="discord-link-rewards" aria-label="Connection rewards">
+                    <span><img class="discord-link-reward-image" src="Connected Monkey.png" alt=""><b><strong>Connected Monkey</strong><small>exclusive skin</small></b></span>
+                    <span><img class="discord-link-reward-image coins" src="powerup-banana-doubler.png" alt=""><b><strong>150 Banana Coins</strong><small>one-time reward</small></b></span>
+                    <span><img class="discord-link-reward-image ticket" src="crate-crystal.png" alt=""><b><strong>Random Crate Ticket</strong><small>one free opening</small></b></span>
+                </div>
+                <button id="connectDiscordGameAccount" class="discord-link-primary" type="button" ${disabled ? 'disabled' : ''}><svg class="discord-link-button-icon" viewBox="0 0 127.14 96.36" aria-hidden="true"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0 105.89 105.89 0 0 0 19.39 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-9.45 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 9.44 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 59.94 31 52.86S36 40 42.45 40s11.54 5.8 11.43 12.86-5.05 12.83-11.43 12.83Zm42.24 0c-6.28 0-11.44-5.75-11.44-12.83S78.21 40 84.69 40s11.54 5.8 11.43 12.86-5.05 12.83-11.43 12.83Z"/></svg>${state.discordLink.pending ? 'Waiting for Discord…' : 'Connect Discord'}</button>
+                <button id="joinDiscordGameServer" class="discord-link-secondary" type="button"><span class="discord-link-button-icon server" aria-hidden="true">↗</span>Join Flappy Monkey Server</button>
+                <div class="discord-link-status ${state.discordLink.error ? 'error' : ''}">${escapeHtml(state.discordLink.error || (state.discordLink.configured === false ? 'Discord linking still needs server setup.' : 'Rewards can only be claimed once per Discord account.'))}</div>`;
+            document.getElementById('connectDiscordGameAccount')?.addEventListener('click', () => {
+                state.discordLink.pending = true;
+                state.discordLink.error = '';
+                updateDiscordLinkSettingsPanel();
+                if (!send({ type:'discord_link_begin' })) {
+                    state.discordLink.pending = false;
+                    state.discordLink.error = 'Connect to the Flappy Monkey server and try again.';
+                    updateDiscordLinkSettingsPanel();
+                }
+            });
+            document.getElementById('joinDiscordGameServer')?.addEventListener('click', () => openDiscordExternal(state.discordLink.inviteUrl));
+            window.refreshFlappyInputFocusFix?.(panel);
+            return;
+        }
+        const joined = Number(connection.joinedAt) ? new Date(Number(connection.joinedAt)).toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' }) : 'Membership verified';
+        const roleMarkup = roles.length
+            ? roles.map((role) => `<span class="discord-link-role" style="--discord-role:${discordRoleColor(role.color)}">${role.iconUrl ? `<img src="${escapeHtml(role.iconUrl)}" alt="">` : '<i aria-hidden="true"></i>'}${escapeHtml(role.name)}</span>`).join('')
+            : '<span class="discord-link-role"><i aria-hidden="true"></i>Flappy Monkey Community</span>';
+        panel.innerHTML = `
+            <div class="discord-linked-card">
+                <div class="discord-linked-banner"></div>
+                <img class="discord-linked-avatar" src="${escapeHtml(connection.avatarUrl || 'Default Monkey.png')}" alt="Discord avatar">
+                <div class="discord-linked-identity"><span>CONNECTED DISCORD</span><strong>${escapeHtml(connection.displayName || connection.username || 'Discord Member')}</strong><small>@${escapeHtml(connection.username || 'member')} · Server member since ${escapeHtml(joined)}</small></div>
+                <span class="discord-linked-state">✓ CONNECTED</span>
+            </div>
+            <div class="discord-link-role-list">${roleMarkup}</div>
+            <div class="discord-link-actions"><button id="refreshDiscordGameAccount" class="discord-link-primary" type="button"><span class="discord-link-button-icon server" aria-hidden="true">↻</span>Refresh Discord Profile & Roles</button><button id="openDiscordGameServer" class="discord-link-secondary" type="button"><span class="discord-link-button-icon server" aria-hidden="true">↗</span>Open Discord Server</button></div>
+            <div class="discord-link-status ${state.discordLink.error ? 'error' : ''}">${escapeHtml(state.discordLink.error || 'Your Flappy Monkey Community role and one-time rewards are secured to this account.')}</div>`;
+        const banner = panel.querySelector('.discord-linked-banner');
+        if (banner && connection.bannerUrl) banner.style.backgroundImage = `linear-gradient(90deg,rgba(8,12,30,.28),rgba(13,9,30,.72)),url("${String(connection.bannerUrl).replace(/["\\\n\r]/g,'')}")`;
+        document.getElementById('refreshDiscordGameAccount')?.addEventListener('click', () => {
+            state.discordLink.error = '';
+            send({ type:'discord_link_refresh' });
+            showToast('Refreshing Discord profile and roles…');
+        });
+        document.getElementById('openDiscordGameServer')?.addEventListener('click', () => openDiscordExternal(state.discordLink.inviteUrl));
+        window.refreshFlappyInputFocusFix?.(panel);
+    }
 
     function updateRedeemCodesPanel() {
         const panel = document.getElementById('redeemCodesSettingsPanel');
@@ -6023,6 +6153,13 @@
             actions.parentElement.insertBefore(grid, actions);
         }
         ensureRedeemCodesPanel(grid);
+        let discordPanel = document.getElementById('discordLinkSettingsPanel');
+        if (!discordPanel) {
+            discordPanel = document.createElement('section');
+            discordPanel.id = 'discordLinkSettingsPanel';
+            discordPanel.className = 'settings-upgrade-panel discord-link-settings';
+            grid.appendChild(discordPanel);
+        }
         let panel = document.getElementById('onlineAccountSettingsPanel');
         if (!panel) {
             panel = document.createElement('section');
@@ -6030,6 +6167,7 @@
             panel.className = 'settings-upgrade-panel online-account-settings';
             grid.appendChild(panel);
         }
+        updateDiscordLinkSettingsPanel();
         updateOnlineSettingsPanel();
     }
 

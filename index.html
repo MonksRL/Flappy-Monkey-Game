@@ -14,7 +14,7 @@
     <link rel="shortcut icon" href="icon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="monkey-192.png">
     <script>if (location.protocol === 'http:' || location.protocol === 'https:') { const manifest = document.createElement('link'); manifest.rel = 'manifest'; manifest.href = 'manifest.json'; document.head.appendChild(manifest); }</script>
-    <link rel="stylesheet" href="multiplayer.css?v=20260815-live7">
+    <link rel="stylesheet" href="multiplayer.css?v=20260815-live8">
     <link rel="stylesheet" href="birthday-event.css">
     <link rel="stylesheet" href="game-dialog.css">
     <link rel="stylesheet" href="mobile.css">
@@ -25,7 +25,7 @@
     <link rel="stylesheet" href="cosmetic-favorites.css">
     <link rel="stylesheet" href="banners-emotes.css?v=20260810-live8">
     <link rel="stylesheet" href="monkey-world-events.css?v=20260811-live4">
-    <link rel="stylesheet" href="monkey-duel.css?v=20260815-live6">
+    <link rel="stylesheet" href="monkey-duel.css?v=20260815-live7">
     <script>
         // Run a final progress wipe before any game variables read localStorage.
         // This prevents late timers from restoring XP, scores, or achievements
@@ -3524,6 +3524,7 @@ if (customUsername && customUsername.trim() && profilePic && !localStorage.getIt
     { name: 'Default', file: 'Default Monkey.png', unlockScore: 0, unlocked: true },
     { name:'Index Monkey', file:'Index Monkey.png', unlocked:localStorage.getItem('collectionIndexRewardClaimed') === 'true', unlockType:'collectionIndexReward', unlockText:'Complete and claim the Collection Index', linkedTitle:'Monkey Index Master', menuBg:'index-monkey-bg.png', rarity:'mythic', indexReward:true },
     { name: 'Developer Monkey', file: 'Developer Monkey.png', unlocked: false, unlockType: 'developerGrant', grantOnly: true, menuBg: 'developer-bg.png', rarity: 'developer' },
+    { name: 'Connected Monkey', file: 'Connected Monkey.png', unlocked: false, unlockType: 'discordLink', unlockText: 'Connect Discord in Settings and join the Flappy Monkey community', grantOnly: true, menuBg: 'connected-monkey-bg.png', rarity: 'icon' },
     { name: 'Jungle Monkey', file: 'Jungle Monkey.png', unlocked: false, unlockType: 'redeem', unlockText: 'Redeem code FLAPPY MONKEY', grantOnly: true, menuBg: 'jungle-bg.png', rarity: 'epic' },
     { name: 'Monkey King', file: 'Monkey King.png', unlocked: false, unlockType: 'rankedSeason1', unlockText: 'Season 1 Ranked Skin — unlockable by reaching Monkey King rank', grantOnly: true, menuBg: 'monkeyking-bg.png', rarity: 'mythic' },
     { name: 'Birthday Bash Monkey', file: 'Birthday Bash Monkey.png', unlocked: false, unlockType: 'anniversary', unlockText: 'Visit during Flappy Monkey’s annual Birthday Bash', grantOnly: true, menuBg: 'birthday-bash-bg.png', rarity: 'mythic' },
@@ -20839,8 +20840,8 @@ applyProfileTheme();
 <script src="mastery-aura-weather.js?v=20260809-live4"></script>
     <script src="banners-emotes.js?v=20260815-live11"></script>
 <script src="monkey-world-events.js?v=20260811-live4"></script>
-    <script src="monkey-duel.js?v=20260815-live6"></script>
-    <script src="multiplayer.js?v=20260815-live21"></script>
+    <script src="monkey-duel.js?v=20260815-live7"></script>
+    <script src="multiplayer.js?v=20260815-live22"></script>
 <script src="pwa.js"></script>
 <style id="controller-accessibility-upgrade">
     :root { --shake-scale: 1; }
