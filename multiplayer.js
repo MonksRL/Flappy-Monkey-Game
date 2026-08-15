@@ -366,7 +366,8 @@
     }
 
     function playDuelCombatEffectAudio(effect = {}) {
-        if (effect.kind === 'parry' || effect.blocked) playEventOneShot('assets/audio/monkey-world/sword-block.mp3', { volume:effect.kind === 'parry' ? .92 : .76, rate:effect.kind === 'parry' ? 1.08 : .98 });
+        if (effect.kind === 'swing' || effect.kind === 'heavy_swing') playEventOneShot('assets/audio/monkey-world/sword-hit.mp3', { volume:effect.kind === 'heavy_swing' ? .48 : .36, rate:effect.kind === 'heavy_swing' ? .78 : 1.32 });
+        else if (effect.kind === 'parry' || effect.blocked) playEventOneShot('assets/audio/monkey-world/sword-block.mp3', { volume:effect.kind === 'parry' ? .92 : .76, rate:effect.kind === 'parry' ? 1.08 : .98 });
         else if (effect.kind === 'hit') {
             const powerful = effect.hitType === 'crit' || effect.hitType === 'heavy' || Number(effect.amount) >= 35;
             playEventOneShot(powerful ? 'assets/audio/monkey-world/sword-heavy-hit.mp3' : 'assets/audio/monkey-world/sword-hit.mp3', { volume:powerful ? .88 : .74, rate:.96 + Math.random() * .08 });
