@@ -50,7 +50,7 @@ Generate `CHEAT_AUTH_SIGNING_SECRET` locally with a password manager or a crypto
 ## 4. Deploy and verify
 
 1. Deploy the updated private server bundle.
-2. Open `https://flappy-monkey-server.onrender.com/health` and confirm the build includes `control-panel-v4.5`, `controlDeck.configured` is true, and `controlDeck.allowedRoleIdsConfigured` is `3`.
+2. Open `https://flappy-monkey-server.onrender.com/health` and confirm the build is `2026.08.15-runtime-v4.8` (or newer), `controlDeck.configured` is true, and `controlDeck.allowedRoleIdsConfigured` is `3`.
 3. Open `https://flappy-monkey-server.onrender.com/cheat-api/status`. It should report `configured: true`, `guestAccess: false`, and the three approved role names.
 4. Run the Python app and authorize the approved account.
 5. Test a non-member Discord account. It must receive **Access denied**.
@@ -59,4 +59,4 @@ Generate `CHEAT_AUTH_SIGNING_SECRET` locally with a password manager or a crypto
 
 The Control Panel is self-only. It derives the game account from the authenticated Discord ID and the owner/account-link variables above; client-supplied attempts to target a different player are rejected. The bot resolves every Discord role name, color, and role icon for display, but only `DISCORD_CHEAT_ROLE_IDS` grants access. Authorized roles are privileged staff roles, so protect them carefully.
 
-Without `DISCORD_CHEAT_MEMBER_EVENTS=true`, the server still refreshes live role names/colors through Discord's non-privileged gateway events and audits each authorized session through Discord REST about every two minutes. With the optional member-events setting enabled, additions and removals normally appear within seconds. If Discord rejects the privileged intent, the server safely falls back to the non-privileged connection and keeps the REST audit active.
+Without `DISCORD_CHEAT_MEMBER_EVENTS=true`, the server still refreshes live role names/colors through Discord's non-privileged gateway events and audits each authorized session through Discord's bot API about every 15 seconds. With the optional member-events setting enabled, additions and removals normally appear even sooner. If Discord rejects the privileged intent, the server safely falls back to the non-privileged connection and keeps the bot audit active.
