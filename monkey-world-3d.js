@@ -9,7 +9,7 @@
         try {
             // This bundled browser module is part of the shipped game, so the
             // 3D coast works on GitHub/static hosting as well as in the EXE.
-            return await import('./assets/vendor/three.module.min.js?v=20260809a');
+            return await import('./assets/vendor/three.module.min.js?v=20260815b');
         } catch (bundledError) {
             try {
                 // Kept as a compatibility path for the local preview server.

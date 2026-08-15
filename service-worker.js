@@ -1,11 +1,12 @@
 'use strict';
 
-const CACHE_VERSION = 'flappy-monkey-control-panel-v12';
+const CACHE_VERSION = 'flappy-monkey-world-runtime-v13';
 const APP_SHELL = [
     './', './index.html', './manifest.json', './mobile.css', './multiplayer.css',
     './birthday-event.css', './game-dialog.css', './game-dialog.js', './birthday-event.js',
     './account-storage.js', './multiplayer-client-config.js', './monkey-world-renderer.js',
-    './monkey-world-3d.js', './mastery-aura-weather.css', './mastery-aura-weather.js',
+    './monkey-world-3d.js', './assets/vendor/three.module.min.js', './assets/vendor/three.core.min.js',
+    './mastery-aura-weather.css', './mastery-aura-weather.js',
     './cosmetic-favorites.css', './cosmetic-favorites.js',
     './banners-emotes.css', './banners-emotes.js',
     './monkey-world-events.css', './monkey-world-events.js', './monkey-world-voice.js',
