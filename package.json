@@ -1,6 +1,6 @@
 {
   "name": "flappy-monkey",
-  "version": "1.9.6",
+  "version": "1.9.7",
   "description": "Flappy Monkey - Made by monksrl on Discord!",
   "main": "main.js",
   "author": "ItzMonksRL",
@@ -102,8 +102,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "ItzMonksRL",
-        "repo": "flappy-monkey"
+        "owner": "MonksRL",
+        "repo": "Flappy-Monkey-Game"
       }
     ]
   }
