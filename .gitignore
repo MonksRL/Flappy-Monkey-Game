@@ -17,6 +17,9 @@ tmp/
 *.log
 __pycache__/
 *.pyc
+flappy-monkey-control-deck/build/
+flappy-monkey-control-deck/dist/
+flappy-monkey-control-deck/*.spec
 _aura-visual-check.html
 
 # Private multiplayer/server source stays in the separate private server repo.
@@ -24,6 +27,10 @@ multiplayer-server.js
 online-defense-server.js
 monkey-world-events-server.js
 monkey-duel-server.js
+cheat-control-server.js
+cheat-control-adapter.js
+cheat-control-catalog.js
+cheat-control-catalog.json
 multiplayer-server.test.js
 smtp-test.js
 preview-server.js
@@ -32,6 +39,7 @@ ONLINE_SETUP.md
 # Local verification and project-maintenance files are not part of the game client.
 *.test.js
 check-inline-scripts.js
+scripts/generate-cheat-control-catalog.js
 process-crate-icons.py
 process-open-crate-icons.py
 BUILD-AND-UPLOAD-GAME-EXE.txt
