@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_VERSION = 'flappy-monkey-world-runtime-v13';
+const CACHE_VERSION = 'flappy-monkey-world-runtime-v14';
 const APP_SHELL = [
     './', './index.html', './manifest.json', './mobile.css', './multiplayer.css',
     './birthday-event.css', './game-dialog.css', './game-dialog.js', './birthday-event.js',

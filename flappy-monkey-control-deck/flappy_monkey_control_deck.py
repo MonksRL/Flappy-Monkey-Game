@@ -893,6 +893,7 @@ class RoundedDropdown(tk.Canvas):
         self.command = command
         self.hovered = False
         self.popup: tk.Toplevel | None = None
+        self._focus_before_popup: tk.Misc | None = None
         self.bind("<Button-1>", lambda _event: self.toggle())
         self.bind("<Return>", lambda _event: self.toggle())
         self.bind("<space>", lambda _event: self.toggle())
@@ -925,6 +926,11 @@ class RoundedDropdown(tk.Canvas):
 
     def open(self) -> None:
         self.close()
+        owner = self.winfo_toplevel()
+        try:
+            self._focus_before_popup = owner.focus_get()
+        except tk.TclError:
+            self._focus_before_popup = None
         popup = tk.Toplevel(self)
         self.popup = popup
         popup.overrideredirect(True)
@@ -933,7 +939,6 @@ class RoundedDropdown(tk.Canvas):
         x = self.winfo_rootx()
         y = self.winfo_rooty() + self.winfo_height() + 3
         menu_height = min(520, max(44, len(self.values) * 30 + 12))
-        owner = self.winfo_toplevel()
         # Keep the list inside the actual app window rather than merely inside
         # the desktop. Otherwise a list near the bottom can cover the status
         # bar or appear detached from its control while the page scrolls.
@@ -970,8 +975,11 @@ class RoundedDropdown(tk.Canvas):
             popup.after(25, check)
         popup.bind("<FocusOut>", close_if_focus_left, add=True)
         popup.lift()
+        # focus_force() can strand Windows keyboard focus on a destroyed
+        # borderless Toplevel. A normal focus request is sufficient for Escape
+        # handling and lets us reliably restore the exact prior text field.
         try:
-            popup.focus_force()
+            popup.focus_set()
         except tk.TclError:
             pass
         owner._fm_open_dropdown = self
@@ -981,13 +989,6 @@ class RoundedDropdown(tk.Canvas):
     def select(self, value: str) -> None:
         self.variable.set(value)
         self.close()
-        # Return keyboard ownership to the main window.  The borderless popup
-        # previously left focus attached to a destroyed Toplevel on Windows;
-        # after that, text fields could appear clickable but ignore typing.
-        try:
-            self.winfo_toplevel().focus_set()
-        except tk.TclError:
-            pass
         if callable(self.command):
             self.command()
 
@@ -999,6 +1000,16 @@ class RoundedDropdown(tk.Canvas):
             owner._fm_open_dropdown = None
         self.popup = None
         self._draw()
+        previous_focus = self._focus_before_popup
+        self._focus_before_popup = None
+        if previous_focus is not None:
+            def restore_previous_focus() -> None:
+                try:
+                    if previous_focus.winfo_exists():
+                        previous_focus.focus_set()
+                except tk.TclError:
+                    pass
+            owner.after_idle(restore_previous_focus)
 
 
 class RoundedScrollbar(tk.Canvas):
@@ -1205,7 +1216,7 @@ class ControlDeckApp(tk.Tk):
         self._search_after_id = None
         self._live_save_after_id = None
         self._search_trace_id = self.search_var.trace_add("write", lambda *_args: self.schedule_item_render())
-        self._item_visible_limit = 36
+        self._item_visible_limit = 18
         self._last_item_filter = None
         self._item_photo_cache: dict[tuple[str, tuple[int, int]], object] = {}
         self._remote_image_cache: dict[tuple[str, tuple[int, int], bool], object] = {}
@@ -1947,7 +1958,7 @@ class ControlDeckApp(tk.Tk):
         self.category_label_to_id = {"All Items": "all", **{str(entry.get("label") or humanize(entry.get("id", ""))): str(entry.get("id", "")) for entry in categories}}
         if self.category_var.get() not in self.category_label_to_id:
             self.category_var.set("All Items")
-        combo = RoundedDropdown(filter_wrap, self.category_var, list(self.category_label_to_id), command=lambda: self.render_item_results(reset=True), width=190)
+        combo = RoundedDropdown(filter_wrap, self.category_var, list(self.category_label_to_id), command=lambda: self.after_idle(lambda: self.render_item_results(reset=True)), width=190)
         combo.pack(pady=(3, 0))
         flat_button(controls_inner, "Unlock Filter", self.unlock_selected_category).pack(side="left", padx=8, pady=(17, 0))
         flat_button(controls_inner, "Unlock Everything", lambda: self.batch_unlock("all"), danger=True).pack(side="left", padx=(8, 0), pady=(17, 0))
@@ -1986,7 +1997,7 @@ class ControlDeckApp(tk.Tk):
         if filter_changed:
             # Searching stays responsive by painting fewer image-heavy rows at
             # once; the full unfiltered browser keeps the larger first page.
-            self._item_visible_limit = 18 if query else 36
+            self._item_visible_limit = 12 if query else 18
         self._last_item_filter = filter_key
         items = [item for item in self.catalog.get("items", []) if (category == "all" or item.get("category") == category)]
         if query:
@@ -2043,7 +2054,7 @@ class ControlDeckApp(tk.Tk):
             self.after_idle(restore_search_focus)
 
     def load_more_items(self) -> None:
-        self._item_visible_limit += 36
+        self._item_visible_limit += 24
         self.render_item_results()
 
     def build_live(self) -> None:
