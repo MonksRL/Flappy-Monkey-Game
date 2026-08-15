@@ -2934,15 +2934,42 @@ function globalLiveEffect(key, fallback = 1) {
     return value === undefined ? fallback : value;
 }
 
+// Live Control Deck values are delivered only by the authenticated multiplayer
+// server. They affect this local, unranked canvas game; none of these hooks are
+// used by Online Race, Online Defense, Monkey Duel, or public Monkey World.
+let authorizedControlDeckState = {};
+function controlDeckEnabled(id) { return authorizedControlDeckState[id] === true; }
+function controlDeckNumber(id, fallback = 1) {
+    const value = Number(authorizedControlDeckState[id]);
+    return Number.isFinite(value) ? value : fallback;
+}
+function controlDeckChoice(id, fallback = '') {
+    const value = authorizedControlDeckState[id];
+    return typeof value === 'string' && value ? value : fallback;
+}
+window.FlappyControlDeckRuntime = Object.freeze({
+    applyAuthorizedState(serverState) {
+        const values = serverState && serverState.publicRankedBlocked === true && serverState.values && typeof serverState.values === 'object'
+            ? serverState.values : {};
+        authorizedControlDeckState = { ...values };
+        if (!controlDeckEnabled('forced_powerups_enabled')) {
+            powerups = powerups.filter((powerup) => !powerup.forcedByControlDeck);
+        }
+        applyControlDeckMonkeySize?.();
+        window.dispatchEvent(new CustomEvent('flappy-control-deck-state', { detail:{ ...serverState, values:{ ...authorizedControlDeckState } } }));
+    },
+    snapshot() { return { ...authorizedControlDeckState }; }
+});
+
 function addMonkeyXP(amount) {
     const base = Math.max(0, Number(amount) || 0);
-    const multiplier = (hasGlobalLiveEvent('xp_frenzy') ? 2 : 1) * (Date.now() < monkeyXpBoostUntil ? 2 : 1);
+    const multiplier = (hasGlobalLiveEvent('xp_frenzy') ? 2 : 1) * (Date.now() < monkeyXpBoostUntil ? 2 : 1) * controlDeckNumber('xp_multiplier', 1);
     totalXP += Math.floor(base * multiplier);
 }
 
 function addBananaCoins(amount) {
     const base = Math.max(0, Number(amount) || 0);
-    const multiplier = hasGlobalLiveEvent('banana_storm') ? 3 : 1;
+    const multiplier = (hasGlobalLiveEvent('banana_storm') ? 3 : 1) * controlDeckNumber('coin_multiplier', 1);
     monkeyCoins += Math.floor(base * multiplier);
 }
 
@@ -3405,9 +3432,9 @@ if (customUsername && customUsername.trim() && profilePic && !localStorage.getIt
             // Themes recolor the equipped-monkey card chrome, but an authored
             // skin menuBg remains the card artwork. Default Monkey has no
             // menuBg, so it receives the theme panel as its backdrop instead.
-            setThemeStyle(lobbyCard, 'background', '');
+            setThemeStyle(lobbyCard, 'background', hasCustomTheme && theme.forceArtwork ? (theme.cardArtworkCss || theme.css) : '');
             setThemeStyle(lobbyCard, 'background-color', hasCustomTheme ? themePanelColor : '');
-            setThemeStyle(lobbyCard, 'background-image', hasCustomTheme && !equippedSkinMenuBg ? themePanel : '');
+            setThemeStyle(lobbyCard, 'background-image', hasCustomTheme && !theme.forceArtwork && !equippedSkinMenuBg ? themePanel : '');
             setThemeStyle(lobbyCard, 'border-color', hasCustomTheme ? themeAccent : '');
             setThemeStyle(xpContainer, 'background', hasCustomTheme ? themePanel : '');
             setThemeStyle(xpContainer, 'border-color', hasCustomTheme ? themeAccent : '');
@@ -4885,7 +4912,7 @@ function getHighScoreKey(modeId) {
                 startCountdown(() => resetGame());
                 return;
             }
-            monkey.vel = JUMP;
+            monkey.vel = JUMP * controlDeckNumber('jump_power', 1);
         }
 
         canvas.addEventListener('click', () => isShowingUnlockPopup ? showNextUnlockPopup() : flap());
@@ -4896,6 +4923,27 @@ function getHighScoreKey(modeId) {
         let fireworkParticles = [];
         let turkeyBoostUntil = 0;
         let deathExplosion = null;
+
+        let baseMonkeySize = 72;
+        let appliedControlDeckMonkeyScale = 1;
+
+        function applyControlDeckMonkeySize() {
+            if (!monkey || !Number.isFinite(monkey.size)) return;
+            const nextScale = Math.max(0.5, Math.min(2, controlDeckNumber('monkey_size', 1)));
+            const nextSize = baseMonkeySize * nextScale;
+            if (Math.abs(nextSize - monkey.size) < 0.01) {
+                appliedControlDeckMonkeyScale = nextScale;
+                return;
+            }
+            // Keep the monkey centered as its artwork and collision square grow
+            // or shrink. Every collision path already uses monkey.size, so the
+            // visible skin and hitbox always remain the same dimensions.
+            const offset = (monkey.size - nextSize) / 2;
+            monkey.x += offset;
+            monkey.y += offset;
+            monkey.size = nextSize;
+            appliedControlDeckMonkeyScale = nextScale;
+        }
 
                 function resetGame() {
             window.reportFlappyGameStarted?.('flappy');
@@ -4927,7 +4975,10 @@ function getHighScoreKey(modeId) {
             
             const mode = modes.find(m => m.id === selectedMode) || modes[0];
             const ch = mode.changes;
-            monkey.size = ch.monkeySize ?? 72;
+            baseMonkeySize = ch.monkeySize ?? 72;
+            monkey.size = baseMonkeySize;
+            appliedControlDeckMonkeyScale = 1;
+            applyControlDeckMonkeySize();
             JUMP = ch.jumpForce ?? -4.0;
             GRAVITY = 0.09 * (ch.gravityMult ?? 1);
 
@@ -5399,8 +5450,8 @@ function getHighScoreKey(modeId) {
             if (selectedExplosionVfx === 'none') { deathExplosion = null; return; }
             const centerX = monkey.x + monkey.size / 2;
             const centerY = Math.max(45, Math.min(GROUND_Y - 20, monkey.y + monkey.size / 2));
-            const glyphs = { bananas:['🍌'], stars:['★','✦','⭐'], water:['●','•'], fire:['●','◆'], hypernova:['✦','•'], 'index-infinity':['✦','◆','▰','▱'] }[selectedExplosionVfx] || ['✦'];
-            const colors = { bananas:['#ffd83d','#fff19b'], stars:['#fff','#ffe766','#79e9ff'], water:['#d8fbff','#55dfff','#168eff'], fire:['#fff27a','#ff9b32','#ff3520'], hypernova:['#fff','#72e8ff','#b76cff','#ff62da'], 'index-infinity':['#fff7b0','#73ffd1','#28b982','#d9a83c','#a995ff'] }[selectedExplosionVfx] || ['#fff'];
+            const glyphs = { bananas:['🍌'], stars:['★','✦','⭐'], water:['●','•'], fire:['●','◆'], hypernova:['✦','•'], 'pvp-champion':['⚔','✦','◆'], 'index-infinity':['✦','◆','▰','▱'] }[selectedExplosionVfx] || ['✦'];
+            const colors = { bananas:['#ffd83d','#fff19b'], stars:['#ffffff','#ffe766','#79e9ff'], water:['#d8fbff','#55dfff','#168eff'], fire:['#fff27a','#ff9b32','#ff3520'], hypernova:['#ffffff','#72e8ff','#b76cff','#ff62da'], 'pvp-champion':['#ffffff','#65eaff','#ff56d8','#8f5cff','#ffd65c'], 'index-infinity':['#fff7b0','#73ffd1','#28b982','#d9a83c','#a995ff'] }[selectedExplosionVfx] || ['#ffffff'];
             const reduced = Boolean(window.gameAccessibility?.reducedFlashing);
             const particleCount = reduced ? 36 : selectedExplosionVfx === 'index-infinity' ? 110 : selectedExplosionVfx === 'hypernova' ? 96 : 78;
             deathExplosion = {
@@ -5413,7 +5464,7 @@ function getHighScoreKey(modeId) {
                     const speed=75+Math.random()*230;
                     const size = selectedExplosionVfx === 'water' ? 4+Math.random()*9
                         : selectedExplosionVfx === 'fire' ? 5+Math.random()*10
-                        : selectedExplosionVfx === 'hypernova' ? 4+Math.random()*9
+                        : selectedExplosionVfx === 'hypernova' || selectedExplosionVfx === 'pvp-champion' ? 4+Math.random()*9
                         : 6+Math.random()*13;
                     return { angle, speed, size, spin:(Math.random()-.5)*8, orbit:(Math.random()-.5)*3.2, seed:Math.random(), glyph:glyphs[index%glyphs.length], color:colors[index%colors.length] };
                 })
@@ -5424,7 +5475,7 @@ function getHighScoreKey(modeId) {
             if (window.flappyVisualEffectsEnabled?.('explosion') === false) { deathExplosion = null; return; }
             if (!deathExplosion) return;
             const age=(performance.now()-deathExplosion.startedAt)/1000;
-            const duration=deathExplosion.type==='index-infinity'?2.8:deathExplosion.type==='hypernova'?2.35:2.05;
+            const duration=deathExplosion.type==='index-infinity'?2.8:deathExplosion.type==='hypernova'||deathExplosion.type==='pvp-champion'?2.35:2.05;
             if (age>duration) { deathExplosion=null; return; }
             const fade=Math.max(0,1-age/duration);
             ctx.save();
@@ -5437,8 +5488,9 @@ function getHighScoreKey(modeId) {
                 hypernova:['#ffffff','#a56cff'],
                 water:['#e8ffff','#31cfff'],
                 fire:['#fff18a','#ff3d14'],
+                'pvp-champion':['#ffffff','#65eaff'],
                 'index-infinity':['#fff7ad','#58ffd0']
-            }[deathExplosion.type] || ['#fff','#fff'];
+            }[deathExplosion.type] || ['#ffffff','#ffffff'];
             const flash = ctx.createRadialGradient(deathExplosion.x,deathExplosion.y,0,deathExplosion.x,deathExplosion.y,110+age*35);
             flash.addColorStop(0,burstColors[0]);
             flash.addColorStop(.08,`${burstColors[1]}cc`);
@@ -5526,6 +5578,49 @@ function getHighScoreKey(modeId) {
                     ctx.lineWidth=8-ring;
                     ctx.beginPath();ctx.arc(deathExplosion.x,deathExplosion.y,18+age*(95+ring*38),0,Math.PI*2);ctx.stroke();
                 }
+            }
+            if (deathExplosion.type==='pvp-champion') {
+                const pulse=Math.min(1,age*7)*fade;
+                ctx.save();
+                ctx.translate(deathExplosion.x,deathExplosion.y);
+                ctx.rotate(age*.7);
+                for(let blade=0;blade<2;blade+=1){
+                    ctx.save();
+                    ctx.rotate(blade*Math.PI/2-Math.PI/4);
+                    const bladeGradient=ctx.createLinearGradient(-96,0,96,0);
+                    bladeGradient.addColorStop(0,'rgba(255,86,216,0)');
+                    bladeGradient.addColorStop(.36,'#ff56d8');
+                    bladeGradient.addColorStop(.5,'#ffffff');
+                    bladeGradient.addColorStop(.64,'#65eaff');
+                    bladeGradient.addColorStop(1,'rgba(101,234,255,0)');
+                    ctx.globalAlpha=pulse*.92;
+                    ctx.strokeStyle=bladeGradient;
+                    ctx.lineWidth=8;
+                    ctx.shadowColor=blade?'#65eaff':'#ff56d8';
+                    ctx.shadowBlur=24;
+                    ctx.beginPath();ctx.moveTo(-105,0);ctx.lineTo(105,0);ctx.stroke();
+                    ctx.restore();
+                }
+                ctx.restore();
+                for(let ring=0;ring<4;ring+=1){
+                    ctx.globalAlpha=fade*(.94-ring*.17);
+                    ctx.strokeStyle=['#ffffff','#65eaff','#ff56d8','#8f5cff'][ring];
+                    ctx.lineWidth=Math.max(2,7-ring);
+                    ctx.setLineDash(ring%2?[15,8]:[]);
+                    ctx.lineDashOffset=(ring%2?-1:1)*age*70;
+                    ctx.beginPath();
+                    ctx.arc(deathExplosion.x,deathExplosion.y,20+age*(88+ring*34),0,Math.PI*2);
+                    ctx.stroke();
+                }
+                ctx.setLineDash([]);
+                ctx.globalAlpha=fade;
+                ctx.fillStyle='#ffffff';
+                ctx.font='900 38px Arial';
+                ctx.textAlign='center';
+                ctx.textBaseline='middle';
+                ctx.shadowColor='#ff56d8';
+                ctx.shadowBlur=22;
+                ctx.fillText('⚔',deathExplosion.x,deathExplosion.y);
             }
             if (deathExplosion.type==='index-infinity') {
                 const pulse=Math.min(1,age*4)*fade;
@@ -5617,6 +5712,13 @@ function getHighScoreKey(modeId) {
         }
 
         function handleFatalHit() {
+            if (controlDeckEnabled('god_mode') || controlDeckEnabled('auto_revive')) {
+                lives = Math.max(1, maxLivesThisGame);
+                monkey.y = Math.max(100, Math.min(260, GROUND_Y / 2 - monkey.size / 2));
+                monkey.vel = 0;
+                invincibleUntil = frame + INVINCIBILITY_FRAMES * 2;
+                return true;
+            }
             if (reviveAvailableThisGame) {
                 reviveAvailableThisGame = false;
                 lives = maxLivesThisGame;
@@ -5650,6 +5752,25 @@ function getHighScoreKey(modeId) {
             const maxH = GROUND_Y - gap - 150 + randomExtra;
             const baseTop = Math.random() * (maxH - minH) + minH;
             pipes.push({ x: WIDTH + 140, baseTop, gap, speed, passed: false, oscAmp, oscPhase: Math.random() * Math.PI * 2 });
+            const forcedPowerupAmount = Math.max(0, Math.min(5, Math.floor(controlDeckNumber('powerup_spawn_amount', 0))));
+            if (controlDeckEnabled('forced_powerups_enabled') && forcedPowerupAmount > 0) {
+                const selectedPowerup = controlDeckChoice('powerup_spawn_type', 'All Power-Ups');
+                const typeByName = { 'Extra Life':'extraLife', 'Banana Coins':'coin', Ghost:'ghost', Fire:'fire', Glitch:'glitch' };
+                const allTypes = ['extraLife','coin','ghost','fire','glitch'];
+                for (let spawnIndex = 0; spawnIndex < forcedPowerupAmount; spawnIndex += 1) {
+                    const type = selectedPowerup === 'All Power-Ups'
+                        ? allTypes[(score + pipes.length + spawnIndex) % allTypes.length]
+                        : typeByName[selectedPowerup];
+                    if (!type) continue;
+                    powerups.push({
+                        x: WIDTH + 92 + spawnIndex * 42,
+                        y: 105 + ((pipes.length * 71 + spawnIndex * 83) % 330),
+                        type,
+                        forcedByControlDeck:true,
+                        bobPhase: Math.random() * Math.PI * 2
+                    });
+                }
+            }
             if (score >= 25) {
                 const isHardcore = selectedMode === 'hardcore';
                 const isWonks = selectedMode === 'wonks';
@@ -5877,7 +5998,8 @@ function checkProfileUnlocks() {
         function update() {
             if (!started || countdownActive || victory || gameOverFlag) return;
             if (titleRGBEnabled || titleGradientEnabled) titleHue = (performance.now() / (titleEffectDuration() * 1000) * 360) % 360;
-            let effectiveGravity = GRAVITY;
+            applyControlDeckMonkeySize();
+            let effectiveGravity = GRAVITY * controlDeckNumber('gravity_scale', 1);
             let effectivePipeSpeedMult = 1;
             let pipeScoreBonus = 0;
             if (frame < firePowerUntil) {
@@ -5894,8 +6016,14 @@ function checkProfileUnlocks() {
                 effectiveGravity *= 0.72;
                 monkey.vel = Math.max(monkey.vel, -4.9);
             }
+            if (controlDeckEnabled('freeze_pipes')) effectivePipeSpeedMult = 0;
+            if (controlDeckEnabled('god_mode') || controlDeckEnabled('infinite_lives')) lives = Math.max(1, maxLivesThisGame);
             monkey.vel += effectiveGravity;
             monkey.y += monkey.vel;
+            if (controlDeckEnabled('god_mode')) {
+                if (monkey.y + monkey.size > GROUND_Y) { monkey.y = GROUND_Y - monkey.size; monkey.vel = Math.min(0, monkey.vel); }
+                if (monkey.y < 0) { monkey.y = 0; monkey.vel = Math.max(0, monkey.vel); }
+            }
             frame++;
             if (frame >= nextSpawn) addPipe();
             if (selectedMode === 'glitch' && frame - lastGlitchTrigger > 300 && Math.random() < 0.0012) {
@@ -6052,7 +6180,7 @@ function checkProfileUnlocks() {
                 const bottom = top + p.gap;
                 if (!p.passed && p.x + 68 < monkey.x) {
                     p.passed = true;
-                    const earnedScore = (pipeScoreBonusBase + pipeScoreBonus) * (hasGlobalLiveEvent('score_rush') ? 2 : 1);
+                    const earnedScore = (pipeScoreBonusBase + pipeScoreBonus) * (hasGlobalLiveEvent('score_rush') ? 2 : 1) * controlDeckNumber('score_multiplier', 1);
                     score += earnedScore;
                     // Mastery measures real play, not boosted or event-multiplied score.
                     // One safely passed pipe always contributes exactly one mastery point.
@@ -6078,7 +6206,7 @@ function checkProfileUnlocks() {
                 }
                 const mr = monkey.x + monkey.size;
                 const mb = monkey.y + monkey.size;
-                if (frame >= invincibleUntil && frame >= ghostUntil && frame >= firePowerUntil &&
+                if (!controlDeckEnabled('god_mode') && frame >= invincibleUntil && frame >= ghostUntil && frame >= firePowerUntil &&
                     mr > p.x && monkey.x < p.x + 68 && (monkey.y < top || mb > bottom)) {
                     if (!hit) {
                         lives--;
@@ -6140,7 +6268,15 @@ checkFoodSkinUnlocks();
                 }
             }
             powerups = powerups.filter(p => p.x > -60);
-            if (monkey.y + monkey.size > GROUND_Y || monkey.y < -50) handleFatalHit();
+            // A previously saved forced-spawn value could leave dozens of
+            // animated pickups alive at once. Keep the base canvas bounded so
+            // changing or disabling the Control Panel option recovers FPS
+            // immediately instead of waiting for every old pickup to exit.
+            const powerupRenderLimit = controlDeckEnabled('forced_powerups_enabled') ? 28 : 18;
+            if (powerups.length > powerupRenderLimit) {
+                powerups.splice(0, powerups.length - powerupRenderLimit);
+            }
+            if (!controlDeckEnabled('god_mode') && (monkey.y + monkey.size > GROUND_Y || monkey.y < -50)) handleFatalHit();
             if (countdownActive) return;
             const musicTheme = getMusicTheme();
             if (!customAudio && musicTheme !== lastTheme) {
@@ -7019,6 +7155,13 @@ if (selectedTitle && selectedTitle !== 'None') {
                         grad.addColorStop(0,'#28134f'); grad.addColorStop(.25,'#7a3fc4'); grad.addColorStop(.48,'#ffd966'); grad.addColorStop(.66,'#a054ca'); grad.addColorStop(1,'#24113f');
                         pipeFill = grad; capFill = '#e8b936'; pipeStroke = '#fff1a1'; ctx.shadowColor = '#eebdff'; ctx.shadowBlur = 17; isSpecial = true;
                     }
+                    else if (selectedPipeTheme === 'last-monkey-standing') {
+                        const grad = ctx.createLinearGradient(p.x,0,p.x+68,0);
+                        grad.addColorStop(0,'#3b070d'); grad.addColorStop(.18,'#8e1425'); grad.addColorStop(.42,'#d83e45'); grad.addColorStop(.56,'#5a0915'); grad.addColorStop(.78,'#c92c3d'); grad.addColorStop(1,'#25040a');
+                        const crownCap = ctx.createLinearGradient(p.x-8,0,p.x+76,0);
+                        crownCap.addColorStop(0,'#6a3500'); crownCap.addColorStop(.18,'#e59a13'); crownCap.addColorStop(.42,'#fff0a0'); crownCap.addColorStop(.6,'#da8110'); crownCap.addColorStop(.82,'#fff4a8'); crownCap.addColorStop(1,'#5b2b00');
+                        pipeFill = grad; capFill = crownCap; pipeStroke = '#ffe78b'; ctx.shadowColor = '#ffcc48'; ctx.shadowBlur = 17; isSpecial = true;
+                    }
                     else if (selectedPipeTheme === 'mint') { pipeFill = '#57e5c2'; ctx.shadowColor = '#c4fff0'; ctx.shadowBlur = 13; }
                     else if (selectedPipeTheme === 'index-infinite') {
                         const phase = (Math.sin(frame * .045) + 1) / 2;
@@ -7064,6 +7207,29 @@ if (selectedTitle && selectedTitle !== 'None') {
                 ctx.strokeRect(p.x - 8, bottom, 84, 34);
                 ctx.shadowBlur = 0;
                 drawPipeThemeDetails(p, top, bottom);
+                if (!activeEvent && selectedPipeTheme === 'last-monkey-standing') {
+                    ctx.save();
+                    ctx.globalCompositeOperation='screen';
+                    ctx.shadowColor='#ffd65c';
+                    ctx.shadowBlur=10;
+                    for (const [segmentY, segmentHeight] of [[0, top], [bottom, GROUND_Y-bottom]]) {
+                        ctx.save();
+                        ctx.beginPath();ctx.rect(p.x+3,segmentY,62,segmentHeight);ctx.clip();
+                        for(let y=segmentY+14;y<segmentY+segmentHeight;y+=34){
+                            ctx.globalAlpha=.34+.16*Math.sin(frame*.07+y*.05);
+                            ctx.strokeStyle='#ffd65c';ctx.lineWidth=2;
+                            ctx.beginPath();ctx.moveTo(p.x+8,y);ctx.lineTo(p.x+34,y+13);ctx.lineTo(p.x+60,y);ctx.stroke();
+                            ctx.fillStyle='#fff0a0';ctx.beginPath();ctx.arc(p.x+34,y+13,2.3,0,Math.PI*2);ctx.fill();
+                        }
+                        ctx.restore();
+                    }
+                    for (const capY of [top-28,bottom]) {
+                        ctx.globalAlpha=.95;ctx.fillStyle='#ffd65c';ctx.strokeStyle='#fff1a0';ctx.lineWidth=2;
+                        ctx.beginPath();
+                        ctx.moveTo(p.x+5,capY+19);ctx.lineTo(p.x+15,capY+6);ctx.lineTo(p.x+27,capY+18);ctx.lineTo(p.x+38,capY+4);ctx.lineTo(p.x+50,capY+18);ctx.lineTo(p.x+62,capY+7);ctx.lineTo(p.x+71,capY+19);ctx.closePath();ctx.fill();ctx.stroke();
+                    }
+                    ctx.restore();
+                }
                 if (!activeEvent && selectedPipeTheme === 'index-infinite') {
                     const flow = (frame * 2.6) % 34;
                     ctx.save();
@@ -7267,8 +7433,13 @@ if (selectedTitle && selectedTitle !== 'None') {
             if (confettiParticles.length > 0) drawConfetti();
         }
 
+        let controlDeckFrameBudget = 0;
         function gameLoop() {
-            update();
+            const speed = Math.max(.25, Math.min(4, controlDeckNumber('game_speed', 1)));
+            controlDeckFrameBudget += speed;
+            const updates = Math.min(4, Math.floor(controlDeckFrameBudget));
+            controlDeckFrameBudget -= updates;
+            for (let tick = 0; tick < updates; tick++) update();
             draw();
             requestAnimationFrame(gameLoop);
         }
@@ -8412,6 +8583,15 @@ function refreshTitlesMenu() {
 function cosmeticIconPath(category, id) {
     const normalizedCategory = String(category || '');
     const normalizedId = String(id || '');
+    const eventIcons = {
+        'theme:firework-festival':'assets/event-vault/firework-festival.png',
+        'theme:boss-breaker':'assets/event-vault/boss-breaker.png',
+        'theme:x-marks-the-spot':'assets/event-vault/x-marks-the-spot.png',
+        'vfx:pvp-champion':'assets/event-vault/pvp-champion.png',
+        'pipe:last-monkey-standing':'assets/event-vault/last-monkey-standing.png'
+    };
+    const eventIcon = eventIcons[`${normalizedCategory}:${normalizedId}`];
+    if (eventIcon) return eventIcon;
     if (normalizedCategory === 'theme' && normalizedId === 'index-archive') return 'index-reward-theme.png';
     if (normalizedCategory === 'vfx' && normalizedId === 'index-infinity') return 'index-reward-vfx.png';
     const prefixes = { pipe:'pipe', trail:'trail', theme:'theme', style:'title-style', vfx:'vfx' };
@@ -11046,7 +11226,7 @@ window.addEventListener('load', () => {
                     <span class="social-icon tiktok" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M32.7 4c.7 5.9 4 9.4 9.3 9.8v8.1a22.6 22.6 0 0 1-9.2-2.7v13.2c0 8.3-6.7 12.6-13.5 12.6-7.7 0-13.3-6.1-13.3-13.5 0-8.2 7.3-14.7 16-13.1v8.3c-4.5-1.4-7.7 1.4-7.7 4.9 0 3.2 2.3 5.3 5.2 5.3 3.2 0 5.1-2.2 5.1-6.1V4h8.1Z"/></svg></span>
                     <span class="social-copy"><strong>TikTok</strong><small>Follow @itzmonksrl for short clips.</small></span>
                 </a>
-                <a href="#" onclick="openExternalLink('https://discord.gg/tJcBWEFBP6'); return false;" class="social-link" aria-label="Join the Flappy Monkey Discord server">
+                <a href="#" onclick="openExternalLink('https://discord.gg/HCmAVTNtNe'); return false;" class="social-link" aria-label="Join the Flappy Monkey Discord server">
                     <span class="social-icon discord" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M39.7 8.8A37.5 37.5 0 0 0 30.4 6l-1.1 2.3a34.6 34.6 0 0 0-10.6 0L17.6 6a37.3 37.3 0 0 0-9.3 2.8C2.4 17.5.8 26 .9 34.4a37.8 37.8 0 0 0 11.4 5.8l2.8-3.8c-1.5-.6-3-1.3-4.3-2.2l1.1-.9c8.3 3.8 17.3 3.8 25.5 0l1.2.9c-1.4.9-2.8 1.6-4.4 2.2l2.8 3.8a37.6 37.6 0 0 0 11.4-5.8c.3-9.7-1.6-18.1-8.7-25.6ZM16.8 29.3c-2.5 0-4.5-2.3-4.5-5s2-5 4.5-5 4.6 2.3 4.5 5c0 2.7-2 5-4.5 5Zm14.4 0c-2.5 0-4.5-2.3-4.5-5s2-5 4.5-5 4.6 2.3 4.5 5c0 2.7-2 5-4.5 5Z"/></svg></span>
                     <span class="social-copy"><strong>Discord</strong><small>Join the community and game events.</small></span>
                 </a>
@@ -20462,7 +20642,7 @@ applyProfileTheme();
     <script src="banners-emotes.js?v=20260815-live11"></script>
 <script src="monkey-world-events.js?v=20260811-live4"></script>
     <script src="monkey-duel.js?v=20260811-live5"></script>
-    <script src="multiplayer.js?v=20260815-live19"></script>
+    <script src="multiplayer.js?v=20260815-live21"></script>
 <script src="pwa.js"></script>
 <style id="controller-accessibility-upgrade">
     :root { --shake-scale: 1; }
@@ -20874,6 +21054,15 @@ body[data-profile-theme]:not([data-profile-theme="none"]) :is(
 ) {
     background:var(--equipped-theme-bg)!important;
 }
+body[data-profile-theme]:not([data-profile-theme="none"]) #inventoryMenu .inventory-shell {
+    box-sizing:border-box;
+    padding:12px;
+    border:1px solid color-mix(in srgb,var(--equipped-theme-accent) 68%,rgba(255,255,255,.18));
+    border-radius:26px;
+    background:color-mix(in srgb,var(--equipped-theme-deep) 94%,transparent)!important;
+    box-shadow:0 22px 65px rgba(0,0,0,.42);
+    overflow:hidden;
+}
 /* Socials previously used legacy #socialsPopup ID selectors, which outranked
    the general theme layer and left a green card over themed backdrops. Keep
    the official brand-icon colors, but let the equipped theme own every
@@ -21262,7 +21451,7 @@ body[data-profile-theme]:not([data-profile-theme="none"]) *::-webkit-scrollbar-t
 }
 </style>
 <script src="settings-extras.js?v=20260811-live4"></script>
-<script src="monkey-world-voice.js?v=20260808a"></script>
+<script src="monkey-world-voice.js?v=20260815b"></script>
   <!-- theme-last-mile.js supersedes the two older theme/name repair passes.
        Loading all three created observer feedback loops on every style change. -->
   <script src="theme-last-mile.js"></script>

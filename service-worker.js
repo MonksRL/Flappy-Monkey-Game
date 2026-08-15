@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_VERSION = 'flappy-monkey-mobile-v8';
+const CACHE_VERSION = 'flappy-monkey-control-panel-v11';
 const APP_SHELL = [
     './', './index.html', './manifest.json', './mobile.css', './multiplayer.css',
     './birthday-event.css', './game-dialog.css', './game-dialog.js', './birthday-event.js',
