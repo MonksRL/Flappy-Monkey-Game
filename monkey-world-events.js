@@ -105,7 +105,7 @@
         }
 
         const actionMarkup = event.combat && stats?.alive
-            ? '<button type="button" data-mw-event-action="attack">⚔️ Swing Event Sword · SPACE</button>'
+            ? '<button type="button" data-mw-event-action="attack">🗡️ Swing Wood Sword · SPACE</button>'
             : event.type === 'snowstorm'
                 ? '<button type="button" data-mw-event-action="throw_snowball">❄️ Throw Snowball</button><button type="button" data-mw-event-action="build_snowman">⛄ Build Snowman</button>'
                 : event.type === 'firework_festival'
@@ -214,8 +214,11 @@
         if (!event || !active) return;
         const local = localPlayer();
         const stats = localStats();
-        if (local && stats?.alive && now - lastAutoCollectAt > 260) {
-            const nearby = (event.entities || []).filter((entity) => Math.hypot(local.x-entity.x,local.y-entity.y) < 108).sort((a,b) => Math.hypot(local.x-a.x,local.y-a.y)-Math.hypot(local.x-b.x,local.y-b.y))[0];
+        if (local && stats?.alive && now - lastAutoCollectAt > 170) {
+            // Falling bananas were visually inside the monkey before the old
+            // 108-unit threshold accepted them. The server independently
+            // validates this slightly more forgiving pickup radius.
+            const nearby = (event.entities || []).filter((entity) => Math.hypot(local.x-entity.x,local.y-entity.y) < 142).sort((a,b) => Math.hypot(local.x-a.x,local.y-a.y)-Math.hypot(local.x-b.x,local.y-b.y))[0];
             if (nearby) { lastAutoCollectAt = now; bridge.send({ type:'monkey_world_event_action', action:'collect', entityId:nearby.id }); }
         }
         if (event.type === 'dance_party' && local && stats?.alive) {
@@ -262,12 +265,40 @@
     }
 
     function drawBoss(context, boss, now) {
-        const img=image('bossbreakermonkey.png'); const pulse=1+Math.sin(now*.004)*.035; const size=190*pulse;
-        context.save();context.translate(boss.x,boss.y);context.shadowColor='#ff593c';context.shadowBlur=28;if(img.complete&&img.naturalWidth)context.drawImage(img,-size/2,-size+38,size,size);context.restore();
+        const img=image('bossbreakermonkey.png');
+        const serverNow=Date.now()+(bridge?.serverOffset?.()||0),attacking=Number(boss.attackUntil||0)>serverNow;
+        const walk=boss.moving?Math.sin(now*.014)*7:Math.sin(now*.004)*2;
+        const lunge=attacking?Math.sin(Math.min(1,(Number(boss.attackUntil)-serverNow)/520)*Math.PI)*18:0;
+        const facing=boss.direction==='left'?-1:1,pulse=1+Math.sin(now*.004)*.025; const size=190*pulse;
+        context.save();context.translate(boss.x+facing*lunge,boss.y+walk);context.scale(facing,1);context.shadowColor=attacking?'#ffd45c':'#ff593c';context.shadowBlur=attacking?42:28;if(img.complete&&img.naturalWidth)context.drawImage(img,-size/2,-size+38,size,size);context.restore();
     }
 
     function drawEnemy(context, enemy, now) {
-        const img=image('Pirate Monkey.png'); const bob=Math.sin(now*.005+enemy.x)*3;context.save();context.translate(enemy.x,enemy.y+bob);context.shadowColor='#ff594b';context.shadowBlur=12;if(img.complete&&img.naturalWidth)context.drawImage(img,-42,-78,84,84);context.fillStyle='rgba(2,20,18,.9)';context.fillRect(-45,-96,90,11);context.fillStyle='#ff4655';context.fillRect(-43,-94,86*Math.max(0,enemy.hp/enemy.maxHp),7);context.fillStyle='#fff0a8';context.font='900 9px Arial';context.textAlign='center';context.fillText(enemy.name,0,-104);context.restore();
+        const img=image('Pirate Monkey.png'),serverNow=Date.now()+(bridge?.serverOffset?.()||0),attacking=Number(enemy.attackUntil||0)>serverNow;
+        const bob=enemy.moving?Math.sin(now*.016+enemy.x)*5:Math.sin(now*.005+enemy.x)*2;
+        const facing=enemy.direction==='left'?-1:1,lunge=attacking?facing*12:0;
+        context.save();context.translate(enemy.x+lunge,enemy.y+bob);context.scale(facing,1);context.shadowColor=attacking?'#ffe27b':'#ff594b';context.shadowBlur=attacking?24:12;if(img.complete&&img.naturalWidth)context.drawImage(img,-42,-78,84,84);context.scale(facing,1);context.fillStyle='rgba(2,20,18,.9)';context.beginPath();context.roundRect(-45,-96,90,11,6);context.fill();context.fillStyle='#ff4655';context.beginPath();context.roundRect(-43,-94,86*Math.max(0,enemy.hp/enemy.maxHp),7,4);context.fill();context.fillStyle='#fff0a8';context.font='900 9px Arial';context.textAlign='center';context.fillText(enemy.name,0,-104);context.restore();
+    }
+
+    function drawWoodSword(context, player, now) {
+        const recent=[...effects].reverse().find((fx)=>fx.kind==='sword_swing'&&fx.attackerId===player.profileId&&now-fx.localAt<430);
+        const progress=recent?Math.min(1,(now-recent.localAt)/430):0;
+        const facing=player.direction==='left'?-1:1;
+        const baseAngle=player.direction==='up' ? Math.PI-.35 : player.direction==='down' ? .55 : (facing<0 ? Math.PI-.7 : .7);
+        const swing=recent?(-1.05+progress*2.1):Math.sin(now*.0025+player.x)*.035;
+        context.save();
+        context.translate(player.x+(player.direction==='left'?-25:player.direction==='right'?25:18),player.y-57);
+        context.rotate(baseAngle+swing);
+        context.shadowColor=recent?'#ffe678':'rgba(0,0,0,.7)';context.shadowBlur=recent?18:8;
+        // A lightweight canvas weapon keeps the recognizable Wood Sword look
+        // without drawing the square shop-card background around the player.
+        context.fillStyle='#6e3516';context.strokeStyle='#2c160c';context.lineWidth=3;
+        context.beginPath();context.roundRect(-7,18,14,29,6);context.fill();context.stroke();
+        context.fillStyle='#b76a2d';context.beginPath();context.roundRect(-21,13,42,10,3);context.fill();context.stroke();
+        const blade=context.createLinearGradient(-12,-49,13,14);blade.addColorStop(0,'#ffd487');blade.addColorStop(.18,'#bd7536');blade.addColorStop(.72,'#7c3f1d');blade.addColorStop(1,'#4f2815');
+        context.fillStyle=blade;context.beginPath();context.moveTo(-11,14);context.lineTo(-13,-34);context.lineTo(0,-54);context.lineTo(13,-34);context.lineTo(11,14);context.closePath();context.fill();context.stroke();
+        context.strokeStyle='rgba(255,224,151,.7)';context.lineWidth=2;context.beginPath();context.moveTo(-5,7);context.lineTo(-6,-31);context.lineTo(0,-43);context.stroke();
+        context.restore();
     }
 
     function drawWorld(context, stage, data) {
@@ -275,13 +306,13 @@
         const now=data.now||performance.now();
         if(stage==='back'){
             if(event.type==='snowstorm'){context.save();context.fillStyle='rgba(226,243,255,.3)';context.fillRect(0,0,3200,1700);context.fillStyle='rgba(246,251,255,.7)';for(let i=0;i<90;i++){const x=(i*379+now*.05*(1+i%3))%3200,y=(i*193+now*.08*(1+i%4))%1700;context.beginPath();context.arc(x,y,2+i%3,0,Math.PI*2);context.fill();}context.restore();}
-            if(event.type==='dance_party'){const [x,y]=event.danceCenter||[1600,930];context.save();context.translate(x,y);for(let row=-3;row<=3;row++)for(let col=-4;col<=4;col++){const hue=(row*42+col*28+now*.08)%360;context.fillStyle=`hsla(${hue},90%,60%,.62)`;context.fillRect(col*48-22,row*38-18,44,34);}context.restore();}
-            for(const launcher of event.launchers||[]){context.save();context.translate(launcher.x,launcher.y);context.fillStyle='#7f4930';context.strokeStyle='#ffe26e';context.lineWidth=3;context.beginPath();context.roundRect(-17,-28,34,48,8);context.fill();context.stroke();context.fillStyle='#ff5d53';context.fillRect(-8,-37,16,14);context.restore();}
+            if(event.type==='dance_party'){const [x,y]=event.danceCenter||[1600,930];context.save();context.translate(x,y);context.fillStyle='rgba(3,18,31,.4)';context.shadowColor='#9bf4ff';context.shadowBlur=32;context.beginPath();context.roundRect(-250,-170,500,340,35);context.fill();for(let row=-3;row<=3;row++)for(let col=-5;col<=5;col++){const hue=(row*42+col*28+now*.08)%360;context.fillStyle=`hsla(${hue},90%,60%,.68)`;context.beginPath();context.roundRect(col*43-19,row*42-18,38,36,7);context.fill();}context.translate(0,-245);const disco=context.createRadialGradient(-8,-10,5,0,0,39);disco.addColorStop(0,'#fff');disco.addColorStop(.35,'#9ff5ff');disco.addColorStop(1,'#7b45dc');context.fillStyle=disco;context.beginPath();context.arc(0,0,38,0,Math.PI*2);context.fill();context.strokeStyle='rgba(255,255,255,.55)';for(let i=-28;i<=28;i+=14){context.beginPath();context.moveTo(i,-29);context.lineTo(i,29);context.stroke();context.beginPath();context.moveTo(-29,i);context.lineTo(29,i);context.stroke();}context.restore();}
+            for(const launcher of event.launchers||[]){context.save();context.translate(launcher.x,launcher.y);context.shadowColor='#ff9f57';context.shadowBlur=22;const tube=context.createLinearGradient(-20,0,20,0);tube.addColorStop(0,'#52233f');tube.addColorStop(.5,'#d95c56');tube.addColorStop(1,'#572340');context.fillStyle=tube;context.strokeStyle='#ffe487';context.lineWidth=3;context.beginPath();context.roundRect(-20,-34,40,58,11);context.fill();context.stroke();context.fillStyle='#ffdd65';context.beginPath();context.moveTo(-11,-35);context.lineTo(0,-53);context.lineTo(11,-35);context.closePath();context.fill();context.stroke();context.fillStyle='#fff1a7';context.font='900 8px Arial';context.textAlign='center';context.fillText('LAUNCH',0,7);context.restore();}
             for(const entity of event.entities||[])drawPickup(context,entity,now);
             if(event.boss)drawBoss(context,event.boss,now);
             for(const enemy of event.enemies||[])drawEnemy(context,enemy,now);
         }else{
-            if(event.combat)for(const player of data.players||[]){const stats=(event.leaderboard||[]).find((entry)=>entry.profileId===player.profileId);if(!stats?.alive)continue;context.save();context.translate(player.x+24,player.y-65);context.rotate(-.6+Math.sin(now*.012+player.x)*.08);context.strokeStyle='#6b3e18';context.lineWidth=6;context.beginPath();context.moveTo(0,16);context.lineTo(0,34);context.stroke();context.strokeStyle='#eaf6ff';context.shadowColor='#8cd9ff';context.shadowBlur=10;context.lineWidth=6;context.beginPath();context.moveTo(0,15);context.lineTo(0,-30);context.stroke();context.restore();}
+            if(event.combat)for(const player of data.players||[]){const stats=(event.leaderboard||[]).find((entry)=>entry.profileId===player.profileId);if(!stats?.alive)continue;drawWoodSword(context,player,now);}
             for(const fx of effects){const age=now-fx.localAt;if(['damage','sword_hit'].includes(fx.kind)&&fx.amount){const target=(event.leaderboard||[]).find((entry)=>entry.profileId===fx.targetId);const x=fx.x||target?.x,y=fx.y||target?.y;if(Number.isFinite(x)){context.save();context.globalAlpha=Math.max(0,1-age/1500);context.fillStyle='#fff08c';context.strokeStyle='#641c13';context.lineWidth=4;context.font='1000 24px Arial';context.textAlign='center';context.strokeText(`-${fx.amount}`,x,y-100-age*.03);context.fillText(`-${fx.amount}`,x,y-100-age*.03);context.restore();}}
                 if(fx.kind==='firework'){const launcher=fx.launcher||{x:1600,y:900};const progress=Math.min(1,age/900),burstAge=Math.max(0,age-900);const x=launcher.x,y=launcher.y-progress*520;context.save();context.globalCompositeOperation='lighter';context.fillStyle=fx.color;context.shadowColor=fx.color;context.shadowBlur=18;if(age<900){context.beginPath();context.arc(x,y,5,0,Math.PI*2);context.fill();}else{for(let i=0;i<28;i++){const angle=i/28*Math.PI*2,dist=Math.min(180,burstAge*.16);context.globalAlpha=Math.max(0,1-burstAge/3000);context.beginPath();context.arc(x+Math.cos(angle)*dist,y+Math.sin(angle)*dist,3,0,Math.PI*2);context.fill();}if(fx.golden){context.globalAlpha=Math.max(0,1-burstAge/2800);context.font='1000 32px Arial';context.textAlign='center';context.fillText('FLAPPY MONKEY',x,y);}}context.restore();}
                 if(fx.kind==='snowman'){context.save();context.translate(fx.x,fx.y);context.font='54px Arial';context.textAlign='center';context.fillText('⛄',0,0);context.restore();}

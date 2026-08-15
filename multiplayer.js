@@ -358,6 +358,7 @@
     function playWorldEventEffectAudio(effect = {}) {
         const distanceVolume = spatialEventVolume(effect);
         if (effect.kind === 'firework') playEventOneShot('assets/audio/monkey-world/firework-launch.mp3', { volume:.82 * distanceVolume, rate:.94 + Math.random() * .12 });
+        else if (effect.kind === 'sword_swing') playEventOneShot('assets/audio/monkey-world/sword-hit.mp3', { volume:.34 * distanceVolume, rate:1.22 + Math.random() * .12 });
         else if (effect.kind === 'sword_hit') {
             const powerful = Number(effect.amount) >= 45;
             playEventOneShot(powerful ? 'assets/audio/monkey-world/sword-heavy-hit.mp3' : 'assets/audio/monkey-world/sword-hit.mp3', { volume:(powerful ? .84 : .72) * distanceVolume, rate:.95 + Math.random() * .1 });
