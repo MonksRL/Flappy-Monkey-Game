@@ -2943,18 +2943,18 @@ function controlDeckNumber(id, fallback = 1) {
     const value = Number(authorizedControlDeckState[id]);
     return Number.isFinite(value) ? value : fallback;
 }
-function controlDeckChoice(id, fallback = '') {
-    const value = authorizedControlDeckState[id];
-    return typeof value === 'string' && value ? value : fallback;
-}
 window.FlappyControlDeckRuntime = Object.freeze({
     applyAuthorizedState(serverState) {
         const values = serverState && serverState.publicRankedBlocked === true && serverState.values && typeof serverState.values === 'object'
             ? serverState.values : {};
         authorizedControlDeckState = { ...values };
-        if (!controlDeckEnabled('forced_powerups_enabled')) {
-            powerups = powerups.filter((powerup) => !powerup.forcedByControlDeck);
-        }
+        // Forced per-pipe power-up spawning was removed. Discard both legacy
+        // values and any pickups left by an older Control Panel/server build so
+        // they can never affect base-game performance again.
+        delete authorizedControlDeckState.forced_powerups_enabled;
+        delete authorizedControlDeckState.powerup_spawn_type;
+        delete authorizedControlDeckState.powerup_spawn_amount;
+        powerups = powerups.filter((powerup) => !powerup.forcedByControlDeck);
         applyControlDeckMonkeySize?.();
         window.dispatchEvent(new CustomEvent('flappy-control-deck-state', { detail:{ ...serverState, values:{ ...authorizedControlDeckState } } }));
     },
@@ -5461,7 +5461,12 @@ function getHighScoreKey(modeId) {
             const glyphs = { bananas:['🍌'], stars:['★','✦','⭐'], water:['●','•'], fire:['●','◆'], hypernova:['✦','•'], 'pvp-champion':['⚔','✦','◆'], 'index-infinity':['✦','◆','▰','▱'] }[selectedExplosionVfx] || ['✦'];
             const colors = { bananas:['#ffd83d','#fff19b'], stars:['#ffffff','#ffe766','#79e9ff'], water:['#d8fbff','#55dfff','#168eff'], fire:['#fff27a','#ff9b32','#ff3520'], hypernova:['#ffffff','#72e8ff','#b76cff','#ff62da'], 'pvp-champion':['#ffffff','#65eaff','#ff56d8','#8f5cff','#ffd65c'], 'index-infinity':['#fff7b0','#73ffd1','#28b982','#d9a83c','#a995ff'] }[selectedExplosionVfx] || ['#ffffff'];
             const reduced = Boolean(window.gameAccessibility?.reducedFlashing);
-            const particleCount = reduced ? 36 : selectedExplosionVfx === 'index-infinity' ? 110 : selectedExplosionVfx === 'hypernova' ? 96 : 78;
+            const particleCount = selectedExplosionVfx === 'pvp-champion'
+                ? (reduced ? 20 : 44)
+                : reduced ? 36
+                : selectedExplosionVfx === 'index-infinity' ? 110
+                : selectedExplosionVfx === 'hypernova' ? 96
+                : 78;
             deathExplosion = {
                 type:selectedExplosionVfx,
                 startedAt:performance.now(),
@@ -5605,12 +5610,12 @@ function getHighScoreKey(modeId) {
                     ctx.strokeStyle=bladeGradient;
                     ctx.lineWidth=8;
                     ctx.shadowColor=blade?'#65eaff':'#ff56d8';
-                    ctx.shadowBlur=24;
+                    ctx.shadowBlur=12;
                     ctx.beginPath();ctx.moveTo(-105,0);ctx.lineTo(105,0);ctx.stroke();
                     ctx.restore();
                 }
                 ctx.restore();
-                for(let ring=0;ring<4;ring+=1){
+                for(let ring=0;ring<3;ring+=1){
                     ctx.globalAlpha=fade*(.94-ring*.17);
                     ctx.strokeStyle=['#ffffff','#65eaff','#ff56d8','#8f5cff'][ring];
                     ctx.lineWidth=Math.max(2,7-ring);
@@ -5627,7 +5632,7 @@ function getHighScoreKey(modeId) {
                 ctx.textAlign='center';
                 ctx.textBaseline='middle';
                 ctx.shadowColor='#ff56d8';
-                ctx.shadowBlur=22;
+                ctx.shadowBlur=12;
                 ctx.fillText('⚔',deathExplosion.x,deathExplosion.y);
             }
             if (deathExplosion.type==='index-infinity') {
@@ -5760,25 +5765,6 @@ function getHighScoreKey(modeId) {
             const maxH = GROUND_Y - gap - 150 + randomExtra;
             const baseTop = Math.random() * (maxH - minH) + minH;
             pipes.push({ x: WIDTH + 140, baseTop, gap, speed, passed: false, oscAmp, oscPhase: Math.random() * Math.PI * 2 });
-            const forcedPowerupAmount = Math.max(0, Math.min(5, Math.floor(controlDeckNumber('powerup_spawn_amount', 0))));
-            if (controlDeckEnabled('forced_powerups_enabled') && forcedPowerupAmount > 0) {
-                const selectedPowerup = controlDeckChoice('powerup_spawn_type', 'All Power-Ups');
-                const typeByName = { 'Extra Life':'extraLife', 'Banana Coins':'coin', Ghost:'ghost', Fire:'fire', Glitch:'glitch' };
-                const allTypes = ['extraLife','coin','ghost','fire','glitch'];
-                for (let spawnIndex = 0; spawnIndex < forcedPowerupAmount; spawnIndex += 1) {
-                    const type = selectedPowerup === 'All Power-Ups'
-                        ? allTypes[(score + pipes.length + spawnIndex) % allTypes.length]
-                        : typeByName[selectedPowerup];
-                    if (!type) continue;
-                    powerups.push({
-                        x: WIDTH + 92 + spawnIndex * 42,
-                        y: 105 + ((pipes.length * 71 + spawnIndex * 83) % 330),
-                        type,
-                        forcedByControlDeck:true,
-                        bobPhase: Math.random() * Math.PI * 2
-                    });
-                }
-            }
             if (score >= 25) {
                 const isHardcore = selectedMode === 'hardcore';
                 const isWonks = selectedMode === 'wonks';
@@ -5972,10 +5958,21 @@ function getHighScoreKey(modeId) {
         let pipeProgressFlushTimer = 0;
         let pipeProgressNeedsLevelUnlockCheck = false;
         let pipeProgressNeedsScoreUnlockCheck = false;
+        let pendingPipeMasteryPasses = 0;
+        let pendingPipeQuestPasses = 0;
         const pendingPipeHighScoreWrites = new Map();
 
         function flushPipeProgress() {
             pipeProgressFlushTimer = 0;
+            if (pendingPipeMasteryPasses > 0) {
+                window.FlappyMastery?.addScore(selectedSkin, pendingPipeMasteryPasses, { source:'base-game', pipe:true });
+                pendingPipeMasteryPasses = 0;
+            }
+            if (pendingPipeQuestPasses > 0) {
+                updateDailyQuestProgress('survivepipes');
+                updateDailyQuestProgress('pipes', pendingPipeQuestPasses);
+                pendingPipeQuestPasses = 0;
+            }
             localStorage.setItem('totalPipesPassed', String(totalPipesPassed));
             localStorage.setItem('monkeyXP', String(totalXP));
             pendingPipeHighScoreWrites.forEach((value, key) => localStorage.setItem(key, String(value)));
@@ -6241,12 +6238,11 @@ function checkProfileUnlocks() {
                     score += earnedScore;
                     // Mastery measures real play, not boosted or event-multiplied score.
                     // One safely passed pipe always contributes exactly one mastery point.
-                    window.FlappyMastery?.addScore(selectedSkin, 1, { source:'base-game', pipe:true });
+                    pendingPipeMasteryPasses++;
                     addMonkeyXP(1);
                     totalPipesPassed++;
                     pipeStreakNoDamage++;
-                    updateDailyQuestProgress('survivepipes');
-                    updateDailyQuestProgress('pipes', 1);
+                    pendingPipeQuestPasses++;
                     const currentMilestone = Math.floor(score / 50) * 50;
                     if (currentMilestone > lastMilestone) {
                         addMonkeyXP(50);
@@ -6329,7 +6325,7 @@ checkFoodSkinUnlocks();
             // animated pickups alive at once. Keep the base canvas bounded so
             // changing or disabling the Control Panel option recovers FPS
             // immediately instead of waiting for every old pickup to exit.
-            const powerupRenderLimit = controlDeckEnabled('forced_powerups_enabled') ? 28 : 18;
+            const powerupRenderLimit = 18;
             if (powerups.length > powerupRenderLimit) {
                 powerups.splice(0, powerups.length - powerupRenderLimit);
             }
@@ -6705,6 +6701,73 @@ checkFoodSkinUnlocks();
                 ctx.fillRect(x + 3*px, y+3*px, px*1, px*1);
             }
             ctx.imageSmoothingEnabled = true;
+        }
+
+        let lastMonkeyStandingPipeTextures = null;
+        function getLastMonkeyStandingPipeTextures() {
+            if (lastMonkeyStandingPipeTextures) return lastMonkeyStandingPipeTextures;
+            const bodyCanvas = document.createElement('canvas');
+            bodyCanvas.width = 68;
+            bodyCanvas.height = 96;
+            const body = bodyCanvas.getContext('2d');
+            const bodyGradient = body.createLinearGradient(0, 0, 68, 0);
+            bodyGradient.addColorStop(0, '#25040a');
+            bodyGradient.addColorStop(.12, '#6f0d1a');
+            bodyGradient.addColorStop(.3, '#c73543');
+            bodyGradient.addColorStop(.46, '#7f1220');
+            bodyGradient.addColorStop(.58, '#e04a50');
+            bodyGradient.addColorStop(.76, '#8b1423');
+            bodyGradient.addColorStop(1, '#2b050c');
+            body.fillStyle = bodyGradient;
+            body.fillRect(0, 0, 68, 96);
+            body.fillStyle = 'rgba(255,244,180,.28)';
+            body.fillRect(8, 0, 5, 96);
+            body.fillStyle = 'rgba(75,0,12,.42)';
+            body.fillRect(49, 0, 8, 96);
+            for (const y of [18, 66]) {
+                body.fillStyle = '#7d3b05';
+                body.fillRect(0, y, 68, 9);
+                body.fillStyle = '#f3b52e';
+                body.fillRect(0, y + 1, 68, 5);
+                body.fillStyle = '#fff0a2';
+                body.fillRect(8, y + 2, 18, 2);
+                body.fillRect(42, y + 2, 18, 2);
+                body.fillStyle = '#9b1528';
+                body.fillRect(30, y, 8, 8);
+            }
+            const capCanvas = document.createElement('canvas');
+            capCanvas.width = 84;
+            capCanvas.height = 34;
+            const cap = capCanvas.getContext('2d');
+            const capGradient = cap.createLinearGradient(0, 0, 84, 0);
+            capGradient.addColorStop(0, '#5b2b00');
+            capGradient.addColorStop(.14, '#d6810c');
+            capGradient.addColorStop(.34, '#fff0a0');
+            capGradient.addColorStop(.5, '#d98d13');
+            capGradient.addColorStop(.68, '#fff4b0');
+            capGradient.addColorStop(.86, '#c16b08');
+            capGradient.addColorStop(1, '#4a2100');
+            cap.fillStyle = capGradient;
+            cap.fillRect(0, 0, 84, 34);
+            cap.fillStyle = '#5b0915';
+            cap.fillRect(6, 12, 72, 13);
+            cap.fillStyle = '#bd2034';
+            cap.fillRect(9, 14, 66, 8);
+            cap.fillStyle = '#fff1a0';
+            cap.fillRect(7, 5, 70, 3);
+            cap.fillStyle = '#58d9ff';
+            cap.save();
+            cap.translate(42, 18);
+            cap.rotate(Math.PI / 4);
+            cap.fillRect(-5, -5, 10, 10);
+            cap.restore();
+            cap.fillStyle = '#fff7ce';
+            cap.fillRect(40, 15, 4, 4);
+            lastMonkeyStandingPipeTextures = {
+                body:ctx.createPattern(bodyCanvas, 'repeat'),
+                cap:ctx.createPattern(capCanvas, 'repeat')
+            };
+            return lastMonkeyStandingPipeTextures;
         }
 
         function drawPipeThemeDetails(pipe, top, bottom) {
@@ -7213,11 +7276,14 @@ if (selectedTitle && selectedTitle !== 'None') {
                         pipeFill = grad; capFill = '#e8b936'; pipeStroke = '#fff1a1'; ctx.shadowColor = '#eebdff'; ctx.shadowBlur = 17; isSpecial = true;
                     }
                     else if (selectedPipeTheme === 'last-monkey-standing') {
-                        const grad = ctx.createLinearGradient(p.x,0,p.x+68,0);
-                        grad.addColorStop(0,'#3b070d'); grad.addColorStop(.18,'#8e1425'); grad.addColorStop(.42,'#d83e45'); grad.addColorStop(.56,'#5a0915'); grad.addColorStop(.78,'#c92c3d'); grad.addColorStop(1,'#25040a');
-                        const crownCap = ctx.createLinearGradient(p.x-8,0,p.x+76,0);
-                        crownCap.addColorStop(0,'#6a3500'); crownCap.addColorStop(.18,'#e59a13'); crownCap.addColorStop(.42,'#fff0a0'); crownCap.addColorStop(.6,'#da8110'); crownCap.addColorStop(.82,'#fff4a8'); crownCap.addColorStop(1,'#5b2b00');
-                        pipeFill = grad; capFill = crownCap; pipeStroke = '#ffe78b'; ctx.shadowColor = '#ffcc48'; ctx.shadowBlur = 17; isSpecial = true;
+                        // The jeweled artwork is rendered once into two tiny
+                        // textures and then reused. It keeps the layered royal
+                        // look without rebuilding gradients or GPU-heavy blur
+                        // for every pipe on every animation frame.
+                        const royalTextures = getLastMonkeyStandingPipeTextures();
+                        pipeFill = royalTextures.body;
+                        capFill = royalTextures.cap;
+                        pipeStroke = '#ffe78b';
                     }
                     else if (selectedPipeTheme === 'mint') { pipeFill = '#57e5c2'; ctx.shadowColor = '#c4fff0'; ctx.shadowBlur = 13; }
                     else if (selectedPipeTheme === 'index-infinite') {
@@ -7266,24 +7332,33 @@ if (selectedTitle && selectedTitle !== 'None') {
                 drawPipeThemeDetails(p, top, bottom);
                 if (!activeEvent && selectedPipeTheme === 'last-monkey-standing') {
                     ctx.save();
-                    ctx.globalCompositeOperation='screen';
-                    ctx.shadowColor='#ffd65c';
-                    ctx.shadowBlur=10;
                     for (const [segmentY, segmentHeight] of [[0, top], [bottom, GROUND_Y-bottom]]) {
                         ctx.save();
                         ctx.beginPath();ctx.rect(p.x+3,segmentY,62,segmentHeight);ctx.clip();
-                        for(let y=segmentY+14;y<segmentY+segmentHeight;y+=34){
-                            ctx.globalAlpha=.34+.16*Math.sin(frame*.07+y*.05);
-                            ctx.strokeStyle='#ffd65c';ctx.lineWidth=2;
-                            ctx.beginPath();ctx.moveTo(p.x+8,y);ctx.lineTo(p.x+34,y+13);ctx.lineTo(p.x+60,y);ctx.stroke();
-                            ctx.fillStyle='#fff0a0';ctx.beginPath();ctx.arc(p.x+34,y+13,2.3,0,Math.PI*2);ctx.fill();
+                        ctx.globalAlpha=.78;
+                        for(let y=segmentY+18;y<segmentY+segmentHeight;y+=96){
+                            ctx.fillStyle='#f2b632';ctx.fillRect(p.x+4,y,60,3);
+                            ctx.fillStyle='#fff0a0';ctx.fillRect(p.x+8,y+1,18,2);
+                            ctx.fillRect(p.x+42,y+1,18,2);
                         }
                         ctx.restore();
                     }
                     for (const capY of [top-28,bottom]) {
-                        ctx.globalAlpha=.95;ctx.fillStyle='#ffd65c';ctx.strokeStyle='#fff1a0';ctx.lineWidth=2;
+                        ctx.globalAlpha=.96;
+                        ctx.fillStyle='#ffe471';
                         ctx.beginPath();
-                        ctx.moveTo(p.x+5,capY+19);ctx.lineTo(p.x+15,capY+6);ctx.lineTo(p.x+27,capY+18);ctx.lineTo(p.x+38,capY+4);ctx.lineTo(p.x+50,capY+18);ctx.lineTo(p.x+62,capY+7);ctx.lineTo(p.x+71,capY+19);ctx.closePath();ctx.fill();ctx.stroke();
+                        ctx.moveTo(p.x+18,capY+24);
+                        ctx.lineTo(p.x+22,capY+10);
+                        ctx.lineTo(p.x+34,capY+20);
+                        ctx.lineTo(p.x+42,capY+7);
+                        ctx.lineTo(p.x+50,capY+20);
+                        ctx.lineTo(p.x+62,capY+10);
+                        ctx.lineTo(p.x+66,capY+24);
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.strokeStyle='#7a3400';ctx.lineWidth=2;ctx.stroke();
+                        ctx.fillStyle='#53dcff';
+                        ctx.save();ctx.translate(p.x+42,capY+21);ctx.rotate(Math.PI/4);ctx.fillRect(-4,-4,8,8);ctx.restore();
                     }
                     ctx.restore();
                 }
@@ -11208,7 +11283,14 @@ refreshSkinMenu = function() {
 window.addEventListener('load', () => {
     setTimeout(updateLobbyMonkeyPreview, 400);
 });
-window.addEventListener('flappy-mastery-progress', updateLobbyMonkeyPreview);
+window.addEventListener('flappy-mastery-progress', () => {
+    // Passing a pipe advances mastery while the canvas is animating. Rebuilding
+    // the lobby preview here forced image/style/layout work onto that exact
+    // frame and produced the visible hitch reported after every pipe. The
+    // preview is refreshed by the normal menu/lobby paths, so only update it
+    // immediately while gameplay is not active.
+    if (!started || gameOverFlag || victory) updateLobbyMonkeyPreview();
+});
 window.addEventListener('flappy-collection-changed', event => {
     if (event.detail?.category === 'skin-mastery') updateLobbyMonkeyPreview();
 });
