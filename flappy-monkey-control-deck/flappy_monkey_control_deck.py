@@ -37,7 +37,7 @@ except ImportError:  # The app remains usable; remote avatars use initials.
 
 
 APP_NAME = "Flappy Monkey Control Panel"
-APP_VERSION = "1.9.0"
+APP_VERSION = "1.9.1"
 DEFAULT_SERVER = "https://flappy-monkey-server.onrender.com"
 DEFAULT_INVITE = "https://discord.gg/HCmAVTNtNe"
 ALLOWED_ROLES = (
@@ -2155,7 +2155,12 @@ class ControlDeckApp(tk.Tk):
         roles.pack(fill="x", pady=(0, 12))
         role_wrap = tk.Frame(roles, bg=COLORS["panel"])
         role_wrap.pack(fill="x", padx=16, pady=(4, 18))
-        for index, role in enumerate(self.profile.get("roles", [])):
+        all_roles = list(self.profile.get("roles", []))
+        resolved_roles = [
+            role for role in all_roles
+            if not re.fullmatch(r"(?:Discord )?Role\s+\d+", str(role.get("name", "")), flags=re.IGNORECASE)
+        ]
+        for index, role in enumerate(resolved_roles):
             color = f"#{int(role.get('color', 0) or 0):06x}" if int(role.get("color", 0) or 0) else COLORS["stroke2"]
             badge = RoundedPanel(role_wrap, surface=COLORS["panel2"], border=color, radius=12)
             badge.grid(row=index // 3, column=index % 3, sticky="ew", padx=4, pady=4)
@@ -2166,6 +2171,13 @@ class ControlDeckApp(tk.Tk):
                 self.load_remote_avatar(str(role.get("iconUrl")), role_icon, (26, 26), round_image=True)
             tk.Label(badge, text=role.get("name", "Discord Role"), fg=COLORS["text"], bg=COLORS["panel2"], font=("Segoe UI", 9, "bold"), anchor="w", wraplength=210).pack(side="left", fill="x", expand=True, padx=(0, 8), pady=8)
             role_wrap.grid_columnconfigure(index % 3, weight=1)
+        unresolved_count = len(all_roles) - len(resolved_roles)
+        if unresolved_count:
+            pending = RoundedPanel(role_wrap, surface=COLORS["panel2"], border=COLORS["stroke2"], radius=12)
+            pending.grid(row=len(resolved_roles) // 3, column=len(resolved_roles) % 3, sticky="ew", padx=4, pady=4)
+            tk.Label(pending, text="↻", fg=COLORS["teal"], bg=COLORS["panel2"], width=3, font=("Segoe UI Symbol", 10, "bold")).pack(side="left", padx=(7, 7), pady=8)
+            tk.Label(pending, text=f"Refreshing {unresolved_count} Discord role name{'s' if unresolved_count != 1 else ''}…", fg=COLORS["muted"], bg=COLORS["panel2"], font=("Segoe UI", 9, "bold"), anchor="w", wraplength=210).pack(side="left", fill="x", expand=True, padx=(0, 8), pady=8)
+            role_wrap.grid_columnconfigure(len(resolved_roles) % 3, weight=1)
 
         customization = self.card(page.content, "Edit Local Control Panel Profile", "Customize the banner and accent shown in this app. Discord identity and access roles cannot be edited here.")
         customization.pack(fill="x", pady=(0, 12))
