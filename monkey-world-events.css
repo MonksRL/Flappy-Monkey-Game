@@ -70,8 +70,9 @@
 
 #mwEventLeaderboard {
     position: absolute;
-    right: 382px;
-    top: 224px;
+    left: calc(50% + 372px);
+    right: auto;
+    top: 104px;
     z-index: 18;
     width: 250px;
     max-height: min(62vh, 560px);
@@ -138,14 +139,14 @@
 
 @media (max-width: 760px) {
     #mwEventHud { top: 94px; width: calc(100% - 16px); min-width: 0; }
-    #mwEventLeaderboard { right: 6px; top: 188px; width: 180px; max-height: 42vh; }
+    #mwEventLeaderboard { left: auto; right: 6px; top: 188px; width: 180px; max-height: 42vh; }
     #mwEventActions { bottom: 98px; }
     #mwEventActions button { min-width: 92px; padding: 9px 8px; font-size: 9px; }
 }
 
 @media (min-width: 761px) and (max-width: 1180px) {
     #mwEventHud { width: min(620px, calc(100% - 32px)); min-width: 0; }
-    #mwEventLeaderboard { right: 18px; top: 205px; width: 220px; }
+    #mwEventLeaderboard { left: auto; right: 18px; top: 205px; width: 220px; }
 }
 
 /* Keep the emote control comfortably above the movement hint. */

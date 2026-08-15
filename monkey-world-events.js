@@ -284,21 +284,27 @@
         const recent=[...effects].reverse().find((fx)=>fx.kind==='sword_swing'&&fx.attackerId===player.profileId&&now-fx.localAt<430);
         const progress=recent?Math.min(1,(now-recent.localAt)/430):0;
         const facing=player.direction==='left'?-1:1;
-        const baseAngle=player.direction==='up' ? Math.PI-.35 : player.direction==='down' ? .55 : (facing<0 ? Math.PI-.7 : .7);
-        const swing=recent?(-1.05+progress*2.1):Math.sin(now*.0025+player.x)*.035;
+        const sword=image('assets/duel/runtime/sword-wood-world.png?v=20260815b');
+        const baseAngle=player.direction==='up' ? -.72 : player.direction==='down' ? .35 : -.08;
+        const swing=recent?(-1.02+Math.sin(progress*Math.PI)*1.9):Math.sin(now*.0025+player.x)*.035;
         context.save();
-        context.translate(player.x+(player.direction==='left'?-25:player.direction==='right'?25:18),player.y-57);
+        context.translate(player.x+facing*39,player.y-48);
+        context.scale(facing,1);
         context.rotate(baseAngle+swing);
         context.shadowColor=recent?'#ffe678':'rgba(0,0,0,.7)';context.shadowBlur=recent?18:8;
-        // A lightweight canvas weapon keeps the recognizable Wood Sword look
-        // without drawing the square shop-card background around the player.
-        context.fillStyle='#6e3516';context.strokeStyle='#2c160c';context.lineWidth=3;
-        context.beginPath();context.roundRect(-7,18,14,29,6);context.fill();context.stroke();
-        context.fillStyle='#b76a2d';context.beginPath();context.roundRect(-21,13,42,10,3);context.fill();context.stroke();
-        const blade=context.createLinearGradient(-12,-49,13,14);blade.addColorStop(0,'#ffd487');blade.addColorStop(.18,'#bd7536');blade.addColorStop(.72,'#7c3f1d');blade.addColorStop(1,'#4f2815');
-        context.fillStyle=blade;context.beginPath();context.moveTo(-11,14);context.lineTo(-13,-34);context.lineTo(0,-54);context.lineTo(13,-34);context.lineTo(11,14);context.closePath();context.fill();context.stroke();
-        context.strokeStyle='rgba(255,224,151,.7)';context.lineWidth=2;context.beginPath();context.moveTo(-5,7);context.lineTo(-6,-31);context.lineTo(0,-43);context.stroke();
+        // Use the same recognizable Wood Sword art as Monkey Duel, cropped to
+        // a transparent runtime asset and anchored at the handle. Keeping it
+        // below the monkey's full height prevents the weapon hiding the skin.
+        if(sword.complete&&sword.naturalWidth)context.drawImage(sword,-44,-44,82,82);
         context.restore();
+
+        if(recent){
+            const arcProgress=Math.sin(progress*Math.PI);
+            context.save();context.globalAlpha=.48*arcProgress;context.strokeStyle='#fff1a0';context.lineWidth=5;context.lineCap='round';context.shadowColor='#ffe45d';context.shadowBlur=14;context.beginPath();
+            if(facing>0)context.arc(player.x+7,player.y-42,56,-1.28,.45);
+            else context.arc(player.x-7,player.y-42,56,Math.PI-.45,Math.PI+1.28);
+            context.stroke();context.restore();
+        }
     }
 
     function drawWorld(context, stage, data) {
