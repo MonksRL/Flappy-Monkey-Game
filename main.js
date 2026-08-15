@@ -43,13 +43,12 @@ function createWindow() {
     mainWindow.webContents.once('did-finish-load', () => {
       setTimeout(async () => {
         try {
-          const result = await mainWindow.webContents.executeJavaScript(`(() => {
+          const result = await mainWindow.webContents.executeJavaScript(`(async () => {
             const gate = document.getElementById('onlineStartupGate');
             const auth = document.getElementById('startupAuth');
             const registerEmail = document.getElementById('startupRegisterEmail');
             const settingsAccountPanel = document.getElementById('onlineAccountSettingsPanel');
             const socialPanel = document.getElementById('mpSocialPanel');
-            const dangerModal = document.getElementById('mpAccountDangerModal');
             const resetButton = document.getElementById('resetBtn');
             const lobbyButtons = [...document.querySelectorAll('.button-row > button')].filter((button) => getComputedStyle(button).display !== 'none');
             const lobbyLabelsFit = lobbyButtons.every((button) => button.scrollWidth <= button.clientWidth + 1);
@@ -67,8 +66,26 @@ function createWindow() {
               && document.getElementById('profileUserIdValue')?.textContent.trim() === profileTestId
             );
             document.getElementById('closeProfileMenu')?.click();
+            void window.gameConfirm?.('Reset ALL progress? This cannot be undone.', {
+              title: 'Reset All Progress?',
+              confirmLabel: 'Reset Progress',
+              danger: true
+            });
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const resetDialog = document.getElementById('flappyGameDialogLayer');
+            const resetWarningOpens = Boolean(
+              window.FlappyDialog?.isOpen?.()
+              && resetDialog?.classList.contains('open')
+              && resetDialog.getAttribute('aria-hidden') === 'false'
+            );
+            const resetWarningText = document.getElementById('flappyGameDialogMessage')?.textContent || '';
+            const resetUsesCustomDialog = Boolean(
+              resetWarningText.includes('Reset ALL progress')
+              && resetDialog?.querySelector('.fm-dialog-confirm')?.textContent.includes('Reset Progress')
+            );
+            resetDialog?.querySelector('.fm-dialog-cancel')?.click();
+            await new Promise((resolve) => setTimeout(resolve, 200));
             document.getElementById('onlineHubBtn')?.click();
-            resetButton?.click();
             return {
               gateExists: Boolean(gate),
               gateLocked: Boolean(gate && !gate.classList.contains('unlocked')),
@@ -76,8 +93,9 @@ function createWindow() {
               emailFieldExists: Boolean(registerEmail),
               settingsAccountPanelExists: Boolean(settingsAccountPanel),
               socialPanelExists: Boolean(socialPanel),
-              resetWarningOpens: Boolean(dangerModal?.classList.contains('open')),
-              resetKeepsLogin: Boolean(document.getElementById('mpDangerDescription')?.textContent.includes('current login')),
+              resetButtonExists: Boolean(resetButton),
+              resetWarningOpens,
+              resetUsesCustomDialog,
               onlineHubOpen: Boolean(document.getElementById('onlineModesScreen')?.classList.contains('open')),
               onlineModeCount: document.querySelectorAll('.online-hub-card').length,
               inventoryExists: Boolean(document.getElementById('inventoryMenu')),
@@ -98,7 +116,7 @@ function createWindow() {
             };
           })()`);
           console.log(`STARTUP_UI_RESULT=${JSON.stringify(result)}`);
-          const passed = result.gateExists && result.emailFieldExists && result.settingsAccountPanelExists && result.socialPanelExists && result.resetWarningOpens && result.resetKeepsLogin && result.onlineHubOpen && result.onlineModeCount === 4 && result.inventoryExists && result.monkeyWorldHiddenAtStartup && result.defenseRankHasLabel && result.headerLevelBadgeExists && result.profileUserIdVisibleWhenAccount && result.lobbyButtonCount >= 7 && result.lobbyLabelsFit && rendererErrorCount === 0;
+          const passed = result.gateExists && result.emailFieldExists && result.settingsAccountPanelExists && result.socialPanelExists && result.resetButtonExists && result.resetWarningOpens && result.resetUsesCustomDialog && result.onlineHubOpen && result.onlineModeCount === 4 && result.inventoryExists && result.monkeyWorldHiddenAtStartup && result.defenseRankHasLabel && result.headerLevelBadgeExists && result.profileUserIdVisibleWhenAccount && result.lobbyButtonCount >= 7 && result.lobbyLabelsFit && rendererErrorCount === 0;
           app.exit(passed ? 0 : 1);
         } catch (error) {
           console.error(`Startup UI smoke test failed: ${error.message}`);
