@@ -37,7 +37,7 @@ except ImportError:  # The app remains usable; remote avatars use initials.
 
 
 APP_NAME = "Flappy Monkey Control Panel"
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.9.0"
 DEFAULT_SERVER = "https://flappy-monkey-server.onrender.com"
 DEFAULT_INVITE = "https://discord.gg/HCmAVTNtNe"
 ALLOWED_ROLES = (
