@@ -1,0 +1,325 @@
+/* Final theme-coverage and layout corrections.
+   Kept as the last stylesheet so legacy screen-specific green rules cannot win. */
+
+html {
+  color-scheme: dark;
+}
+
+/* Native Windows select popups do not reliably honor dark option backgrounds.
+   Keep the closed control themed, but give the OS popup a dependable light
+   palette with dark text. */
+select,
+select:focus {
+  color-scheme: light !important;
+  background-color: var(--fm-theme-input, #082f2a) !important;
+  color: var(--fm-theme-text, #f7fff4) !important;
+  -webkit-text-fill-color: var(--fm-theme-text, #f7fff4) !important;
+}
+
+select option,
+select optgroup {
+  background: #f4f1e8 !important;
+  color: #17231d !important;
+  -webkit-text-fill-color: #17231d !important;
+}
+
+select option:checked,
+select option:hover,
+select option:focus {
+  background: #91bff0 !important;
+  color: #10233a !important;
+  -webkit-text-fill-color: #10233a !important;
+}
+
+/* Settings cards must size to their actual content. This removes the large blank
+   area beneath Visuals & Performance while preserving the responsive two columns. */
+#settingsModal :is(.settings-section, .settings-card, .settings-group).fm-compact-settings-card,
+#settingsScreen :is(.settings-section, .settings-card, .settings-group).fm-compact-settings-card,
+.settings-panel :is(.settings-section, .settings-card, .settings-group).fm-compact-settings-card {
+  height: auto !important;
+  block-size: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  max-block-size: none !important;
+  align-self: start !important;
+  padding-bottom: 16px !important;
+}
+
+#settingsModal .settings-grid > *,
+#settingsScreen .settings-grid > *,
+.settings-panel .settings-grid > * {
+  align-self: start !important;
+  min-height: 0 !important;
+}
+
+/* Nested appearance dialogs belong above Settings; Escape closes only the top one. */
+#nameAppearancePopup.open,
+#titleAppearancePopup.open,
+[data-popup="name-appearance"].open,
+[data-popup="title-appearance"].open {
+  z-index: 1000002 !important;
+}
+
+#settingsModal.open,
+#settingsScreen.open,
+.settings-modal.open {
+  z-index: 1000000 !important;
+}
+
+/* Appearance settings are launch buttons, not a tall wall of inline controls. */
+.fm-name-inline-control {
+  display: none !important;
+}
+
+.fm-open-name-appearance,
+.fm-open-title-appearance {
+  display: flex !important;
+  width: 100% !important;
+  min-height: 44px !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.fm-appearance-help {
+  display: block !important;
+  margin: 7px 0 12px !important;
+  color: var(--fm-theme-muted, #b9d8cd) !important;
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+}
+
+/* Common surfaces. These deliberately use the active menu-theme variables rather
+   than hard-coded green so every theme reaches every menu and card family. */
+body :is(
+  .modal-content,
+  .dialog-content,
+  .menu-panel,
+  .screen-panel,
+  .page-panel,
+  .overlay-panel,
+  .hud-panel,
+  .settings-panel,
+  .collection-panel,
+  .market-panel,
+  .inventory-panel,
+  .profile-panel,
+  .friends-panel,
+  .clan-panel,
+  .guide-panel,
+  .world-panel
+) {
+  background-color: var(--fm-theme-panel, var(--theme-panel-bg, #0b3b31)) !important;
+  border-color: var(--fm-theme-border, var(--theme-border, #58a889)) !important;
+  color: var(--fm-theme-text, var(--theme-text, #f7fff4)) !important;
+}
+
+body :is(
+  .card,
+  .item-card,
+  .cosmetic-card,
+  .market-card,
+  .market-item,
+  .shop-card,
+  .inventory-card,
+  .collection-card,
+  .collection-index-card,
+  .index-card,
+  .index-entry,
+  .reward-card,
+  .mode-card,
+  .online-mode-card,
+  .rank-card,
+  .stats-card,
+  .quest-card,
+  .service-card,
+  .friend-card,
+  .message-card,
+  .feed-item,
+  .guide-card
+) {
+  background-color: var(--fm-theme-card, var(--theme-card-bg, #124b3a)) !important;
+  border-color: var(--fm-theme-border, var(--theme-border, #58a889)) !important;
+}
+
+/* Give every clickable control a restrained edge so buttons do not read as flat
+   blocks. Semantic controls keep their own fill and border colour. */
+body :is(button, .button, .btn) {
+  border-style: solid !important;
+  border-width: 1px !important;
+}
+
+/* Preserve semantic danger/success/selected states while theming ordinary controls. */
+body button:not(.danger):not(.destructive):not(.delete-button):not(.logout-button):not(.equipped):not(.active):not([aria-selected="true"]):not([id*="delete" i]):not([id*="reset" i]):not([id*="danger" i]):not([id*="kick" i]):not([id*="block" i]):not([id*="remove" i]),
+body :is(.button, .btn):not(.danger):not(.destructive):not(.active):not(.equipped):not([class*="delete" i]):not([class*="success" i]) {
+  background-color: var(--fm-theme-button, var(--theme-button-bg, #216840)) !important;
+  border-color: var(--fm-theme-border, var(--theme-border, #58a889)) !important;
+  color: var(--fm-theme-text, var(--theme-text, #f7fff4)) !important;
+  box-shadow: inset 0 1px rgba(255,255,255,.12), 0 5px 13px rgba(0,0,0,.2) !important;
+}
+
+body :is(button, .button, .btn):not(:disabled):hover {
+  filter: brightness(1.09);
+}
+
+body :is(input, textarea):not([type="color"]):not([type="checkbox"]):not([type="radio"]) {
+  background-color: var(--fm-theme-input, var(--theme-input-bg, #062c27)) !important;
+  border-color: var(--fm-theme-border, var(--theme-border, #58a889)) !important;
+  color: var(--fm-theme-text, var(--theme-text, #f7fff4)) !important;
+}
+
+/* Collection Index, Banana Market and Inventory contain several legacy card names. */
+:is(#collectionIndexModal, #collectionIndexScreen, .collection-index-modal, .collection-index-screen)
+  :is(.entry, .cosmetic-entry, .index-item, .collection-item, .reward, .master-reward, .summary-card),
+:is(#bananaMarketModal, #bananaMarketScreen, .banana-market, .market-screen)
+  :is(.product, .product-card, .shop-item, .market-product, .boost-card, .aura-card, .banner-card, .emote-card),
+:is(#inventoryModal, #inventoryScreen, .inventory-screen)
+  :is(.inventory-item, .owned-item, .cosmetic-item) {
+  background: var(--fm-theme-card, var(--theme-card-bg, #124b3a)) !important;
+  border-color: var(--fm-theme-border, var(--theme-border, #58a889)) !important;
+}
+
+/* Screens explicitly shown in the report. */
+:is(#musicOptionsModal, #musicOptionsScreen, .music-options-modal, .music-options-screen),
+:is(#globalActivityModal, #globalLiveActivity, .global-live-activity, .live-feed-modal),
+:is(#onlineModesScreen, .online-modes-screen),
+:is(#onlineDefenseScreen, .online-defense-screen),
+:is(#monkeyDefenseGuide, .monkey-defense-guide),
+:is(#onlineRaceScreen, .online-race-screen),
+:is(#friendsMessagesScreen, .friends-messages-screen) {
+  background-color: var(--fm-theme-page, var(--theme-page-bg, #0a3040)) !important;
+  color: var(--fm-theme-text, var(--theme-text, #f7fff4)) !important;
+}
+
+:is(#musicOptionsModal, #musicOptionsScreen, .music-options-modal, .music-options-screen,
+    #globalActivityModal, #globalLiveActivity, .global-live-activity, .live-feed-modal,
+    #onlineModesScreen, .online-modes-screen,
+    #onlineDefenseScreen, .online-defense-screen,
+    #monkeyDefenseGuide, .monkey-defense-guide,
+    #onlineRaceScreen, .online-race-screen,
+    #friendsMessagesScreen, .friends-messages-screen)
+  :is(section, article, header, footer, .panel, .section, .content-card, .header-card, .room-card, .leaderboard-card) {
+  background-color: var(--fm-theme-panel, var(--theme-panel-bg, #0b3b31)) !important;
+  border-color: var(--fm-theme-border, var(--theme-border, #58a889)) !important;
+}
+
+/* Monkey World HUD surfaces use the theme too, without tinting the map itself. */
+:is(#monkeyWorldScreen, .monkey-world-screen) :is(
+  .world-landmark,
+  .landmark-card,
+  .world-location-card,
+  .world-chat,
+  .world-chat-panel,
+  .world-controls,
+  .controls-hint,
+  .world-emote-wheel,
+  .emote-wheel,
+  .emote-wheel-panel
+) {
+  background: var(--fm-theme-panel, var(--theme-panel-bg, #0b3b31)) !important;
+  border-color: var(--fm-theme-border, var(--theme-border, #58a889)) !important;
+  color: var(--fm-theme-text, var(--theme-text, #f7fff4)) !important;
+}
+
+:is(#monkeyWorldScreen, .monkey-world-screen) :is(.world-chat, .world-chat-panel, .world-controls, .controls-hint, .emote-wheel, .emote-wheel-panel)
+  :is(button, input, textarea) {
+  background-color: var(--fm-theme-button, var(--theme-button-bg, #216840)) !important;
+  border-color: var(--fm-theme-border, var(--theme-border, #58a889)) !important;
+  color: var(--fm-theme-text, var(--theme-text, #f7fff4)) !important;
+}
+
+/* Animated RGB/name appearance is exported as inline values by the bridge. */
+.fm-rgb-player-name {
+  animation: fm-player-name-rgb var(--fm-name-rgb-speed, 3s) linear infinite !important;
+}
+
+@keyframes fm-player-name-rgb {
+  0% { color: #ff4d4d; }
+  16% { color: #ffd84d; }
+  33% { color: #57ef79; }
+  50% { color: #4de4ff; }
+  66% { color: #6688ff; }
+  83% { color: #e95cff; }
+  100% { color: #ff4d4d; }
+}
+
+@media (max-width: 860px) {
+  #settingsModal .settings-grid,
+  #settingsScreen .settings-grid,
+  .settings-panel .settings-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Chat cards are banner-capable, so keep every content layer readable above
+   authored banner artwork and never let a short message collapse into a sliver. */
+.mp-messages .mp-message {
+  width: fit-content !important;
+  min-width: min(170px, 72%) !important;
+  max-width: min(78%, 520px) !important;
+  box-sizing: border-box !important;
+  flex: 0 0 auto !important;
+  line-height: 1.35 !important;
+}
+
+.mp-messages .mp-message > * {
+  position: relative;
+  z-index: 2;
+}
+
+.mp-message-body {
+  display: block !important;
+  min-height: 1.35em !important;
+  margin-top: 3px !important;
+  color: inherit !important;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,.72);
+}
+
+.mp-message[data-player-banner],
+.mp-message.mine[data-player-banner] {
+  color: #f5fff7 !important;
+}
+
+.mp-message .mp-group-sender {
+  display: flex !important;
+  min-width: 0 !important;
+  align-items: center !important;
+  gap: 4px !important;
+  line-height: 1.2 !important;
+}
+
+/* A full-size glow is too broad at the tiny chat-author size. It still follows
+   the RGB currentColor, but remains legible. */
+.mp-message .mp-group-sender .flappy-name-glow {
+  text-shadow: 0 0 2px currentColor, 0 0 5px currentColor, 0 1px 2px rgba(0,0,0,.8) !important;
+}
+
+.mp-message .mp-message-meta {
+  min-height: 18px !important;
+  margin-top: 5px !important;
+}
+
+.mp-message .mp-message-delete {
+  width: auto !important;
+  min-width: 0 !important;
+  min-height: 20px !important;
+  padding: 2px 7px !important;
+  border-radius: 7px !important;
+  font-size: 8px !important;
+  line-height: 1 !important;
+}
+
+/* Make the equipped title as obvious as the equipped monkey skin. This base
+   state covers None; the custom-theme selector in index.html supplies each
+   equipped theme's own accent colour. */
+body #titlesGrid .title-option.selected {
+  outline: 3px solid var(--equipped-theme-accent, #ffe985) !important;
+  outline-offset: 3px !important;
+  filter: brightness(1.09) saturate(1.08) !important;
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--equipped-theme-accent, #ffe985) 28%, transparent),
+    0 0 30px color-mix(in srgb, var(--equipped-theme-accent, #ffe985) 72%, transparent),
+    inset 0 0 24px color-mix(in srgb, var(--equipped-theme-accent, #ffe985) 16%, transparent),
+    0 14px 32px rgba(0,0,0,.34) !important;
+}

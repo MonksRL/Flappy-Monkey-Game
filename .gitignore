@@ -15,10 +15,15 @@ github-server-upload/
 tmp/
 .agents/
 *.log
+__pycache__/
+*.pyc
+_aura-visual-check.html
 
 # Private multiplayer/server source stays in the separate private server repo.
 multiplayer-server.js
 online-defense-server.js
+monkey-world-events-server.js
+monkey-duel-server.js
 multiplayer-server.test.js
 smtp-test.js
 preview-server.js

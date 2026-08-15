@@ -872,6 +872,7 @@
     function init() {
         buildUi();
         addModeTile();
+        window.addEventListener('flappy-profile-theme-changed', applyTheme);
         const profileButton = document.getElementById('profileBtn');
         if (profileButton) profileButton.addEventListener('click', () => window.setTimeout(renderProfileStats, 0));
         renderProfileStats();

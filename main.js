@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const { createDiscordPresence } = require('./discord-presence');
 
@@ -126,6 +126,16 @@ ipcMain.handle('discord-presence:get-status', () => discordPresence?.getStatus()
 });
 
 app.whenReady().then(() => {
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission, _requestingOrigin, details) => {
+    if (permission !== 'media') return false;
+    const mediaTypes = Array.isArray(details?.mediaTypes) ? details.mediaTypes : [];
+    return mediaTypes.length === 0 || (mediaTypes.includes('audio') && !mediaTypes.includes('video'));
+  });
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+    if (permission !== 'media') { callback(false); return; }
+    const mediaTypes = Array.isArray(details?.mediaTypes) ? details.mediaTypes : [];
+    callback(mediaTypes.length === 0 || (mediaTypes.includes('audio') && !mediaTypes.includes('video')));
+  });
   discordPresence = createDiscordPresence({
     baseDirectory: __dirname,
     onStatus(status) {

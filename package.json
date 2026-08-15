@@ -14,6 +14,9 @@
     "test:offline-profile": "node offline-profile.test.js",
     "test:birthday-event": "node birthday-event.test.js",
     "test:discord-presence": "node discord-presence.test.js",
+    "test:monkey-world-gifs": "node monkey-world-animated-skin.test.js",
+    "test:monkey-world-events": "node monkey-world-events.test.js",
+    "test:service-worker": "node service-worker.test.js",
     "test:multiplayer": "node multiplayer-server.test.js",
     "test:email": "node smtp-test.js",
     "clean": "rimraf dist",
@@ -25,6 +28,7 @@
     "electron-updater": "^6.3.9",
     "nodemailer": "^9.0.3",
     "pg": "^8.16.3",
+    "three": "^0.185.1",
     "ws": "^8.21.0"
   },
   "devDependencies": {
@@ -54,6 +58,9 @@
       "!offline-profile.test.js",
       "!birthday-event.test.js",
       "!discord-presence.test.js",
+      "!monkey-world-events.test.js",
+      "!monkey-world-animated-skin.test.js",
+      "!service-worker.test.js",
       "!multiplayer-config.json",
       "!smtp-test.js",
       "!preview-server.js",

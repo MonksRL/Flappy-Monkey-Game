@@ -116,7 +116,7 @@
 
     document.addEventListener('keydown', (event) => {
         if (!active) return;
-        if (event.key === 'Escape') {
+        if (window.flappyBackBindingMatches?.(event) ?? event.key === 'Escape') {
             event.preventDefault();
             event.stopImmediatePropagation();
             finish(false);

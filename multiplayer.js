@@ -26,10 +26,8 @@
     const CONNECTION_TIMEOUT_MS = 75_000;
     const RECONNECT_OVERLAY_GRACE_MS = 4_500;
     const GLOBAL_CHAT_SESSION_STARTED_AT = Date.now();
-    const PENDING_MOBILE_SCORE_KEY = 'flappyPendingMobileSkinScore';
     const LOCAL_MOBILE_DEVICE = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent)
-        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-        || matchMedia('(pointer: coarse)').matches;
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
     function normalizedServerAddress(value) {
         return String(value || '').trim().replace(/\/+$/, '').toLowerCase();
@@ -166,6 +164,7 @@
         pipeSchedule: [],
         remotes: new Map(),
         deathEffects: [],
+        weather: null,
         lastStateSentAt: 0,
         animationFrame: null,
         resultOpen: false
@@ -203,8 +202,230 @@
         onlineHubReturn: false,
         resumeAfterReconnect: null,
         pendingChatText: '',
-        pendingChatNeedsResend: false
+        pendingChatNeedsResend: false,
+        localEmote: null
     };
+
+    const MONKEY_WORLD_EVENT_AUDIO = Object.freeze({
+        banana_rain: { src:'assets/audio/monkey-world/banana-rain.mp3', channel:'music', volume:.74, replaceMusic:true },
+        snowstorm: { src:'assets/audio/monkey-world/snowstorm-ambience.mp3', channel:'ambience', volume:.72, replaceMusic:false },
+        dance_party: { src:'assets/audio/monkey-world/dance-party.mp3', channel:'music', volume:.82, replaceMusic:true },
+        boss_breaker: { src:'assets/audio/monkey-world/boss-breaker.mp3', channel:'music', volume:.88, replaceMusic:true },
+        pirate_invasion: { src:'assets/audio/monkey-world/pirate-invasion.mp3', channel:'music', volume:.84, replaceMusic:true },
+        monkey_pvp: { src:'assets/audio/monkey-world/monkey-pvp.mp3', channel:'music', volume:.86, replaceMusic:true },
+        last_monkey_standing: { src:'assets/audio/monkey-world/last-monkey-standing.mp3', channel:'music', volume:.9, replaceMusic:true }
+    });
+    const monkeyWorldEventAudio = { type:'', track:null, config:null, mainPaused:false };
+    const monkeyWorldEmoteAudio = new Map();
+
+    function eventAudioChannelVolume(channel) {
+        const defaults = { music:70, effects:80, ambience:50 };
+        const setting = Math.max(0, Math.min(100, Number(window.gameAccessibility?.[channel] ?? defaults[channel] ?? 80))) / 100;
+        if (channel === 'music' && window.FlappyMainMusicController?.enabled?.() === false) return 0;
+        return setting;
+    }
+
+    function emoteAudioVolume() {
+        if (window.gameAccessibility?.muteEmotes === true) return 0;
+        return Math.max(0, Math.min(100, Number(window.gameAccessibility?.music ?? 70))) / 100;
+    }
+
+    function fadeEventAudio(audio, target, duration = 1000, complete) {
+        if (!audio) return;
+        if (audio.__flappyFadeFrame) cancelAnimationFrame(audio.__flappyFadeFrame);
+        const startVolume = Math.max(0, Math.min(1, Number(audio.volume) || 0));
+        const endVolume = Math.max(0, Math.min(1, Number(target) || 0));
+        const startedAt = performance.now();
+        const tick = (timestamp) => {
+            const progress = Math.min(1, (timestamp - startedAt) / Math.max(1, duration));
+            audio.volume = startVolume + (endVolume - startVolume) * (1 - Math.pow(1 - progress, 3));
+            if (progress < 1) audio.__flappyFadeFrame = requestAnimationFrame(tick);
+            else {
+                audio.__flappyFadeFrame = 0;
+                complete?.();
+            }
+        };
+        audio.__flappyFadeFrame = requestAnimationFrame(tick);
+    }
+
+    function resumeMainMusicAfterWorldEvent() {
+        if (!monkeyWorldEventAudio.mainPaused) return;
+        monkeyWorldEventAudio.mainPaused = false;
+        window.FlappyMainMusicController?.resumeAfterWorldEvent?.();
+    }
+
+    function stopMonkeyWorldEventAudio({ resumeMain = true } = {}) {
+        const oldTrack = monkeyWorldEventAudio.track;
+        monkeyWorldEventAudio.track = null;
+        monkeyWorldEventAudio.type = '';
+        monkeyWorldEventAudio.config = null;
+        if (oldTrack) fadeEventAudio(oldTrack, 0, 1000, () => {
+            oldTrack.pause();
+            try { oldTrack.currentTime = 0; } catch (_) {}
+            oldTrack.remove();
+        });
+        if (resumeMain) window.setTimeout(resumeMainMusicAfterWorldEvent, oldTrack ? 760 : 0);
+    }
+
+    function syncMonkeyWorldEventAudio(event = monkeyWorld.world?.event || null) {
+        const type = String(event?.type || '');
+        const config = MONKEY_WORLD_EVENT_AUDIO[type] || null;
+        if (!monkeyWorld.joined || !config) {
+            stopMonkeyWorldEventAudio({ resumeMain:true });
+            return;
+        }
+        const targetVolume = config.volume * eventAudioChannelVolume(config.channel);
+        if (monkeyWorldEventAudio.type === type && monkeyWorldEventAudio.track) {
+            fadeEventAudio(monkeyWorldEventAudio.track, targetVolume, 180);
+            if (targetVolume > 0 && monkeyWorldEventAudio.track.paused) monkeyWorldEventAudio.track.play().catch(() => {});
+            else if (targetVolume <= 0) monkeyWorldEventAudio.track.pause();
+            return;
+        }
+
+        const keepMainPaused = Boolean(config.replaceMusic);
+        stopMonkeyWorldEventAudio({ resumeMain:false });
+        if (keepMainPaused && !monkeyWorldEventAudio.mainPaused) {
+            monkeyWorldEventAudio.mainPaused = true;
+            window.FlappyMainMusicController?.pauseForWorldEvent?.();
+        } else if (!keepMainPaused) resumeMainMusicAfterWorldEvent();
+
+        const track = new Audio(config.src);
+        track.loop = true;
+        track.preload = 'auto';
+        track.volume = 0;
+        track.dataset.monkeyWorldEventAudio = type;
+        document.body.appendChild(track);
+        monkeyWorldEventAudio.type = type;
+        monkeyWorldEventAudio.track = track;
+        monkeyWorldEventAudio.config = config;
+        if (targetVolume > 0) track.play().then(() => fadeEventAudio(track, targetVolume, 1200)).catch(() => {});
+    }
+
+    function spatialEventVolume(effect) {
+        const x = Number(effect?.x ?? effect?.launcher?.x);
+        const y = Number(effect?.y ?? effect?.launcher?.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return 1;
+        const distance = Math.hypot(monkeyWorld.x - x, monkeyWorld.y - y);
+        return Math.max(.12, Math.min(1, 1 - distance / 1450));
+    }
+
+    function playEventOneShot(src, { volume = 1, rate = 1 } = {}) {
+        const target = Math.max(0, Math.min(1, volume * eventAudioChannelVolume('effects')));
+        if (target <= 0) return;
+        const audio = new Audio(src);
+        audio.preload = 'auto';
+        audio.playbackRate = Math.max(.65, Math.min(1.45, rate));
+        audio.volume = 0;
+        audio.dataset.monkeyWorldOneShot = 'true';
+        document.body.appendChild(audio);
+        let releasing = false;
+        audio.addEventListener('timeupdate', () => {
+            if (!releasing && Number.isFinite(audio.duration) && audio.duration - audio.currentTime < .22) {
+                releasing = true;
+                fadeEventAudio(audio, 0, 190);
+            }
+        });
+        audio.addEventListener('ended', () => audio.remove(), { once:true });
+        audio.play().then(() => fadeEventAudio(audio, target, 65)).catch(() => audio.remove());
+    }
+
+    function playWorldEventEffectAudio(effect = {}) {
+        const distanceVolume = spatialEventVolume(effect);
+        if (effect.kind === 'firework') playEventOneShot('assets/audio/monkey-world/firework-launch.mp3', { volume:.82 * distanceVolume, rate:.94 + Math.random() * .12 });
+        else if (effect.kind === 'sword_hit') {
+            const powerful = Number(effect.amount) >= 45;
+            playEventOneShot(powerful ? 'assets/audio/monkey-world/sword-heavy-hit.mp3' : 'assets/audio/monkey-world/sword-hit.mp3', { volume:(powerful ? .84 : .72) * distanceVolume, rate:.95 + Math.random() * .1 });
+        }
+    }
+
+    function playDuelCombatEffectAudio(effect = {}) {
+        if (effect.kind === 'parry' || effect.blocked) playEventOneShot('assets/audio/monkey-world/sword-block.mp3', { volume:effect.kind === 'parry' ? .92 : .76, rate:effect.kind === 'parry' ? 1.08 : .98 });
+        else if (effect.kind === 'hit') {
+            const powerful = effect.hitType === 'crit' || effect.hitType === 'heavy' || Number(effect.amount) >= 35;
+            playEventOneShot(powerful ? 'assets/audio/monkey-world/sword-heavy-hit.mp3' : 'assets/audio/monkey-world/sword-hit.mp3', { volume:powerful ? .88 : .74, rate:.96 + Math.random() * .08 });
+        }
+    }
+
+    function stopWorldEmoteAudio(profileId, fadeMs = 450) {
+        const key=String(profileId||''),entry=monkeyWorldEmoteAudio.get(key);if(!entry)return;
+        monkeyWorldEmoteAudio.delete(key);clearTimeout(entry.timer);
+        fadeEventAudio(entry.audio,0,fadeMs,()=>{entry.audio.pause();entry.audio.remove();});
+    }
+
+    function startWorldEmoteAudio(action = {}) {
+        const id=String(action.id||''),profileId=String(action.profileId||action.playerId||''),definition=(window.FlappyEmotes?.definitions||[]).find(item=>item.id===id);
+        if(!profileId||!definition?.audio)return;
+        const previous=monkeyWorldEmoteAudio.get(profileId);
+        if(previous?.startedAt===Number(action.startedAt||0)&&previous.id===id)return;
+        stopWorldEmoteAudio(profileId,120);
+        const audio=new Audio(definition.audio);audio.preload='auto';audio.loop=Boolean(definition.loop);audio.volume=0;audio.dataset.monkeyWorldEmote=id;document.body.appendChild(audio);
+        const entry={id,profileId,audio,startedAt:Number(action.startedAt)||Date.now(),x:Number(action.x),y:Number(action.y),timer:0};
+        monkeyWorldEmoteAudio.set(profileId,entry);
+        const actionDuration=Math.max(0,Number(action.until||0)-Number(action.startedAt||0));
+        const duration=Math.max(1200,Math.min(actionDuration||Number(definition.duration)||6500,86_400_000));
+        // Looping emotes are stopped by movement/menu/leave/server stop instead
+        // of by the first track length. Keep a defensive ended handler as well
+        // because some embedded Chromium audio backends do not honor loop after
+        // a device/output change.
+        if(!definition.loop)entry.timer=setTimeout(()=>stopWorldEmoteAudio(profileId,650),Math.max(500,duration-600));
+        audio.addEventListener('ended',()=>{
+            if(!definition.loop||!monkeyWorldEmoteAudio.has(profileId))return;
+            audio.currentTime=0;
+            audio.play().catch(()=>{});
+        });
+        updateWorldEmoteAudio();
+        if(audio.volume>0)audio.play().then(()=>fadeEventAudio(audio,audio.__targetVolume||0,350)).catch(()=>stopWorldEmoteAudio(profileId,0));
+    }
+
+    function updateWorldEmoteAudio() {
+        for(const [profileId,entry] of monkeyWorldEmoteAudio){
+            const player=[...monkeyWorld.players.values()].find(item=>item.profileId===profileId);
+            const x=profileId===state.account?.id?monkeyWorld.x:Number(player?.x??entry.x),y=profileId===state.account?.id?monkeyWorld.y:Number(player?.y??entry.y);
+            const distance=Math.hypot(monkeyWorld.x-x,monkeyWorld.y-y);
+            // Local audio remains clear. Remote music is full nearby, eases out
+            // through conversational distance, and is completely silent once
+            // the performer is far away.
+            const spatial=profileId===state.account?.id
+                ?1
+                :distance<=150
+                    ?1
+                    :distance>=780
+                        ?0
+                        :Math.pow(1-(distance-150)/630,1.65);
+            // Emote songs use the music-volume slider, but the lobby/game music
+            // on/off button must not silence them. They have their own explicit
+            // setting because an emote is a player action, not background music.
+            const target=.72*emoteAudioVolume()*spatial;entry.audio.__targetVolume=target;
+            if(target>0&&entry.audio.paused)entry.audio.play().catch(()=>{});
+            entry.audio.volume=Math.max(0,Math.min(1,entry.audio.volume+(target-entry.audio.volume)*.18));
+        }
+    }
+
+    function stopAllWorldEmoteAudio(){for(const profileId of [...monkeyWorldEmoteAudio.keys()])stopWorldEmoteAudio(profileId,300);}
+
+    function cancelLocalWorldEmote(notifyServer=true){
+        const action=monkeyWorld.localEmote;if(!action)return false;
+        monkeyWorld.localEmote=null;stopWorldEmoteAudio(action.profileId||state.account?.id,180);
+        const localPlayer=[...monkeyWorld.players.values()].find(entry=>entry.profileId===state.account?.id);
+        if(localPlayer){localPlayer.emoteId='';localPlayer.emoteStartedAt=0;localPlayer.emoteUntil=0;}
+        if(notifyServer)send({type:'monkey_world_emote_stop'});
+        return true;
+    }
+
+    window.FlappyMonkeyWorldAudio = Object.freeze({
+        sync: syncMonkeyWorldEventAudio,
+        stop: () => stopMonkeyWorldEventAudio({ resumeMain:true }),
+        refresh: () => syncMonkeyWorldEventAudio(),
+        handleWorldEffect: playWorldEventEffectAudio,
+        playCombatEffect: playDuelCombatEffectAudio,
+        playEmote: startWorldEmoteAudio,
+        stopEmotes: stopAllWorldEmoteAudio,
+        replacesMusic: () => Boolean(monkeyWorldEventAudio.config?.replaceMusic && monkeyWorldEventAudio.track)
+    });
+    document.addEventListener('input', (event) => {
+        if (['musicVolumeSetting','effectsVolumeSetting','ambienceVolumeSetting'].includes(event.target?.id)) { syncMonkeyWorldEventAudio(); updateWorldEmoteAudio(); }
+    });
+    window.addEventListener('flappy-emote-audio-setting-changed', updateWorldEmoteAudio);
     const onlineDefense = {
         room: null,
         rank: null,
@@ -286,28 +507,93 @@
         return localStorage.getItem('selectedTitle') || 'None';
     }
 
+    function currentAura() {
+        return window.FlappyAuras?.selectedId?.() || 'none';
+    }
+
+    function currentBanner() {
+        return window.FlappyBanners?.selectedId?.() || 'none';
+    }
+
+    function bannerAttributesFor(profile = {}) {
+        const profileId = profile.id || profile.profileId || profile.userId || profile.fromId || '';
+        const bannerId = profileId && profileId === state.account?.id
+            ? currentBanner()
+            : profile.banner || profile.equipped?.banner || 'skin-default';
+        return window.FlappyBanners?.attributes?.(bannerId) || '';
+    }
+
     function normalizedTitleStyle(value) {
         const source = value && typeof value === 'object' ? value : {};
+        const flag = entry => entry === true || entry === 1 || entry === 'true' || entry === '1';
         const allowedFx = new Set(['none', 'fire', 'sparkle', 'glitch', 'neonpulse']);
         const fx = allowedFx.has(String(source.fx || '').toLowerCase()) ? String(source.fx).toLowerCase() : 'none';
         const color = /^#[0-9a-f]{6}$/i.test(String(source.color || '')) ? String(source.color).toLowerCase() : '#ffffff';
+        const rgb = flag(source.rgb);
         return {
             fx,
             color,
-            glow: Boolean(source.glow),
-            rgb: Boolean(source.rgb),
-            rgbSpeed: Math.max(.35, Math.min(8, Number(source.rgbSpeed) || 1.5))
+            glow: flag(source.glow),
+            rgb,
+            gradient: flag(source.gradient) && !rgb,
+            rgbSpeed: Math.max(.35, Math.min(30, Number(source.rgbSpeed) || 2))
         };
     }
 
     function currentTitleStyle() {
+        const speedSetting = Math.max(.1, Number(localStorage.getItem('titleRGBSpeed')) || 1.5);
         return normalizedTitleStyle({
             fx: localStorage.getItem('selectedTitleFX') || 'none',
             color: localStorage.getItem('customTitleColor') || '#ffffff',
             glow: localStorage.getItem('titleGlowEnabled') === 'true',
             rgb: localStorage.getItem('titleRGBEnabled') === 'true',
-            rgbSpeed: Number(localStorage.getItem('titleRGBSpeed')) || 1.5
+            gradient: localStorage.getItem('titleGradientEnabled') === 'true',
+            rgbSpeed: window.flappyTitleEffectDuration?.() || Math.max(.35, Math.min(30, 3 / speedSetting))
         });
+    }
+
+    function normalizedNameStyle(value) {
+        const source = value && typeof value === 'object' ? value : {};
+        const flag = entry => entry === true || entry === 1 || entry === 'true' || entry === '1';
+        const rgb = flag(source.rgb);
+        return {
+            color: /^#[0-9a-f]{6}$/i.test(String(source.color || '')) ? String(source.color).toLowerCase() : '#fff3a5',
+            glow: flag(source.glow),
+            rgb,
+            gradient: flag(source.gradient) && !rgb,
+            rgbSpeed: Math.max(.35, Math.min(8, Number(source.rgbSpeed) || 3))
+        };
+    }
+
+    function effectHue(style, now = performance.now()) {
+        return (now / (Math.max(.35, Number(style?.rgbSpeed) || 3) * 1000) * 360) % 360;
+    }
+
+    function canvasRainbowGradient(context, left, right, hue) {
+        const gradient = context.createLinearGradient(left, 0, Math.max(left + 1, right), 0);
+        for (let stop = 0; stop <= 6; stop += 1) gradient.addColorStop(stop / 6, `hsl(${(hue + stop * 60) % 360},100%,72%)`);
+        return gradient;
+    }
+
+    function localAccountLevel() {
+        const serverLevel = Math.max(0, Math.floor(Number(state.account?.level) || 0));
+        if (serverLevel) return serverLevel;
+        let remaining = Math.max(0, Number.parseInt(localStorage.getItem('monkeyXP') || '0', 10) || 0);
+        let level = 1;
+        while (remaining >= level * 100 && level < 100000) {
+            remaining -= level * 100;
+            level += 1;
+        }
+        return level;
+    }
+
+    function currentNameStyle() {
+        if (localAccountLevel() < 5) return normalizedNameStyle({});
+        try {
+            return normalizedNameStyle(JSON.parse(localStorage.getItem('flappyNameAppearance') || '{}'));
+        } catch (_) {
+            return normalizedNameStyle({});
+        }
     }
 
     function baseGameIsActivelyRunning() {
@@ -343,8 +629,10 @@
             : {};
         return {
             skin: currentSkin(),
+            banner: currentBanner(),
             equippedTitle: currentTitle(),
             titleStyle: currentTitleStyle(),
+            nameStyle: currentNameStyle(),
             totalXP: Math.max(0, Number.parseInt(localStorage.getItem('monkeyXP') || '0', 10) || 0),
             progressRevision: Math.max(0, Math.floor(Number(state.account?.progressRevision) || 0)),
             unlockedSkins: typeof monkeySkins !== 'undefined' ? monkeySkins.filter((skin) => skin.unlocked).map((skin) => skin.name).slice(0, 500) : [],
@@ -358,7 +646,7 @@
         if (!state.authenticated || !state.socket || state.socket.readyState !== WebSocket.OPEN) return;
         const profile = buildAccountSyncProfile();
         const cloudProgress = profile.cloudProgress;
-        const signature = `${profile.skin}\n${profile.equippedTitle}\n${JSON.stringify(profile.titleStyle)}\n${profile.totalXP}\n${profile.unlockedSkins.join('|')}\n${profile.customEmojiIds.join('|')}\n${JSON.stringify(profile.showcase)}\n${JSON.stringify(cloudProgress)}`;
+        const signature = `${profile.skin}\n${profile.banner}\n${profile.equippedTitle}\n${JSON.stringify(profile.titleStyle)}\n${JSON.stringify(profile.nameStyle)}\n${profile.totalXP}\n${profile.unlockedSkins.join('|')}\n${profile.customEmojiIds.join('|')}\n${JSON.stringify(profile.showcase)}\n${JSON.stringify(cloudProgress)}`;
         if (!force && signature === lastCosmeticsSignature) return;
         lastCosmeticsSignature = signature;
         send({ type: 'update_account_profile', ...profile });
@@ -399,9 +687,16 @@
                 themes: typeof profileBackgrounds !== 'undefined' ? unlockedNames(profileBackgrounds) : [],
                 trails: typeof trails !== 'undefined' ? unlockedNames(trails) : [],
                 explosionVfx: typeof explosionVfxOptions !== 'undefined' ? unlockedNames(explosionVfxOptions) : [],
-                equippedExplosionVfx: typeof explosionVfxOptions !== 'undefined' ? [explosionVfxOptions.find((effect) => effect.id === selectedExplosionVfx)?.name || 'No Explosion'] : [],
+                auras: (window.FlappyAuras?.definitions || []).filter((item) => window.FlappyAuras.owns(item.id)).map((item) => item.name),
+                banners: (window.FlappyBanners?.definitions || []).filter((item) => window.FlappyBanners.owns(item.id)).map((item) => item.name),
+                emotes: (window.FlappyEmotes?.definitions || []).filter((item) => window.FlappyEmotes.owns(item.id)).map((item) => item.name),
                 emojis: (window.flappyCustomEmojis || []).filter((emoji) => profileOwnsEmoji(emoji.id)).map((emoji) => emoji.name),
                 boosts: { 'Extra Life Tickets': numeric('extraLifeTokens'), 'Banana Doubler Tickets': numeric('coinDoublerTickets'), 'Score Booster Tickets': numeric('scoreBoosterTickets'), '2x Monkey XP Tokens': numeric('xpBoostTokens'), 'Crate Luck Boosts': numeric('crateLuckBoostTokens'), 'Revive Tokens': numeric('reviveTokens') }
+            },
+            equipped: {
+                explosionVFX: typeof selectedExplosionVfx !== 'undefined' ? selectedExplosionVfx : 'none',
+                aura: window.FlappyAuras?.selectedId?.() || 'none',
+                banner: currentBanner()
             }
         };
     }
@@ -458,28 +753,51 @@
             'mp-equipped-title',
             'mp-shared-title',
             `mp-title-fx-${style.fx}`,
-            style.glow ? 'mp-title-glow' : '',
-            style.rgb ? 'mp-title-rgb' : '',
+            style.glow ? 'mp-title-glow flappy-title-glow' : '',
+            style.rgb ? 'mp-title-rgb flappy-title-solid-rgb' : '',
+            style.gradient ? 'mp-title-gradient flappy-title-gradient' : '',
+            extraClass
+        ].filter(Boolean).join(' ');
+        const seconds = Math.max(.35, Math.min(30, style.rgbSpeed)).toFixed(2);
+        return `<span class="${classes}" style="--mp-title-color:${style.color};--mp-title-speed:${seconds}s;--flappy-title-speed:${seconds}s">${escapeHtml(title)}</span>`;
+    }
+
+    function sharedNameHtml(profile, fallback = 'Monkey', extraClass = '') {
+        // The local settings selection is immediately authoritative for the
+        // signed-in player's own cards. This avoids a stale server snapshot
+        // making Profile View, Account, chat, or a lobby lag behind Settings.
+        const profileId = profile?.id || profile?.profileId || profile?.userId || profile?.fromId || '';
+        const presentation = profileId && profileId === state.account?.id
+            ? { ...profile, nameStyle: currentNameStyle() }
+            : profile;
+        const style = normalizedNameStyle(presentation?.nameStyle);
+        const classes = [
+            'mp-shared-name',
+            'flappy-name-style',
+            style.glow ? 'flappy-name-glow' : '',
+            style.rgb ? 'flappy-name-rgb' : '',
+            style.gradient ? 'flappy-name-gradient' : '',
             extraClass
         ].filter(Boolean).join(' ');
         const seconds = Math.max(.35, Math.min(8, style.rgbSpeed)).toFixed(2);
-        return `<span class="${classes}" style="--mp-title-color:${style.color};--mp-title-speed:${seconds}s">${escapeHtml(title)}</span>`;
+        const name = String(presentation?.username || presentation?.name || fallback || 'Monkey');
+        return `<span class="${classes}" style="--flappy-name-color:${style.color};--flappy-name-speed:${seconds}s">${escapeHtml(name)}</span>`;
     }
 
     function localTitleProfile() {
-        return { equippedTitle: currentTitle(), titleStyle: currentTitleStyle() };
+        return { equippedTitle: currentTitle(), titleStyle: currentTitleStyle(), nameStyle: currentNameStyle(), username: state.account?.username || 'You' };
     }
 
     function applySharedTitleUpdate(profile, update) {
         return profile?.id === update.userId || profile?.profileId === update.userId
-            ? { ...profile, equippedTitle: update.equippedTitle, titleStyle: normalizedTitleStyle(update.titleStyle) }
+            ? { ...profile, equippedTitle: update.equippedTitle, titleStyle: normalizedTitleStyle(update.titleStyle), nameStyle: normalizedNameStyle(update.nameStyle) }
             : profile;
     }
 
     function applyLiveTitleUpdate(update) {
         if (!update?.userId) return;
         state.activityFeed = state.activityFeed.map((entry) =>
-            entry.userId === update.userId ? { ...entry, equippedTitle: update.equippedTitle, titleStyle: update.titleStyle } : entry
+            entry.userId === update.userId ? { ...entry, equippedTitle: update.equippedTitle, titleStyle: update.titleStyle, nameStyle: update.nameStyle } : entry
         );
         for (const key of ['friends', 'incoming', 'outgoing', 'blocked']) {
             state.social[key] = (state.social[key] || []).map((profile) => applySharedTitleUpdate(profile, update));
@@ -495,14 +813,15 @@
         if (state.publicProfile) state.publicProfile = applySharedTitleUpdate(state.publicProfile, update);
         for (const [id, player] of monkeyWorld.players) monkeyWorld.players.set(id, applySharedTitleUpdate(player, update));
         monkeyWorld.messages = monkeyWorld.messages.map((message) =>
-            message.fromId === update.userId ? { ...message, equippedTitle: update.equippedTitle, titleStyle: update.titleStyle } : message
+            message.fromId === update.userId ? { ...message, equippedTitle: update.equippedTitle, titleStyle: update.titleStyle, nameStyle: update.nameStyle } : message
         );
-        if (state.account?.id === update.userId) state.account = { ...state.account, equippedTitle: update.equippedTitle, titleStyle: update.titleStyle };
+        if (state.account?.id === update.userId) state.account = { ...state.account, equippedTitle: update.equippedTitle, titleStyle: update.titleStyle, nameStyle: update.nameStyle };
         renderProfile();
         if (state.room) renderLobby();
         if (onlineDefense.room) renderDefenseRoom();
         if (elements.mpActivityModal.classList.contains('open')) renderActivityFeed();
         if (elements.mpSocialCenter.classList.contains('open')) renderSocial();
+        if (elements.mpClanModal.classList.contains('open')) renderClanModal();
         if (monkeyWorld.joined) renderMonkeyWorldChat();
         if (state.publicProfile && elements.mpPublicProfileModal.classList.contains('open')) renderPublicProfile(state.publicProfile);
     }
@@ -596,7 +915,7 @@
         if (!form || !input || form.querySelector('.fm-emoji-picker')) return;
         const picker = document.createElement('div');
         picker.className = 'fm-emoji-picker';
-        picker.innerHTML = '<button class="fm-emoji-toggle" type="button" title="Custom emojis" aria-label="Open custom emoji picker">🐵</button><div class="fm-emoji-panel" aria-hidden="true"></div>';
+        picker.innerHTML = '<button class="fm-emoji-toggle" type="button" title="Custom emojis" aria-label="Open custom emoji picker"><img src="assets/cosmetic-icons/tab-emojis.png?v=20260808c" alt="" aria-hidden="true"></button><div class="fm-emoji-panel" aria-hidden="true"></div>';
         const submit = form.querySelector('button[type="submit"]');
         form.insertBefore(picker, submit || null);
         const record = { root: picker, panel: picker.querySelector('.fm-emoji-panel'), input };
@@ -735,9 +1054,10 @@
             <div class="online-hub-shell">
                 <header class="online-hub-header"><div><h1>ONLINE MODES</h1><p>Choose where you want to play and connect with other monkeys.</p></div><div class="online-hub-actions"><button id="onlineHubSocial" class="mp-primary" type="button">Friends & Messages</button><button id="onlineHubClose" class="mp-secondary" type="button">Back to Game</button></div></header>
                 <main class="online-hub-grid">
-                    <article class="online-hub-card"><div class="online-hub-icon">&#127965;</div><div><h2>Monkey World</h2><p>Explore Banana Coast, walk around as your equipped monkey, enter buildings, and use world chat.</p></div><button id="onlineHubWorld" class="mp-primary" type="button">Enter Monkey World</button></article>
-                    <article class="online-hub-card"><div class="online-hub-icon">&#128737;</div><div><h2>Online Monkey Defense</h2><p>Play ranked public versus or co-op defense, or invite a friend with a private room code.</p></div><button id="onlineHubDefense" class="mp-primary" type="button">Play Online Defense</button></article>
-                    <article class="online-hub-card"><div class="online-hub-icon">&#127937;</div><div><h2>Online Race</h2><p>Race in private or ranked rooms, manage friends and clans, and view your online account.</p></div><button id="onlineHubRace" class="mp-primary" type="button">Open Online Race</button></article>
+                    <article class="online-hub-card"><div class="online-hub-icon"><img src="assets/mode-icons/monkey-world.png?v=20260808e" alt="Monkey World icon"></div><div><h2>Monkey World</h2><p>Explore Banana Coast, walk around as your equipped monkey, enter buildings, and use world chat.</p></div><button id="onlineHubWorld" class="mp-primary" type="button">Enter Monkey World</button></article>
+                    <article class="online-hub-card online-hub-duel"><div class="online-hub-icon"><img src="assets/mode-icons/monkey-duel.png?v=20260808d" alt="Monkey Duel icon"></div><div><h2>Monkey Duel</h2><p>Enter a competitive 1v1 sword arena with map voting, abilities, parries, finishers, Duel progression, and private rooms.</p></div><button id="onlineHubDuel" class="mp-primary" type="button">Enter Monkey Duel</button></article>
+                    <article class="online-hub-card"><div class="online-hub-icon"><img src="assets/mode-icons/online-defense.png?v=20260808d" alt="Online Monkey Defense icon"></div><div><h2>Online Monkey Defense</h2><p>Play ranked public versus or co-op defense, or invite a friend with a private room code.</p></div><button id="onlineHubDefense" class="mp-primary" type="button">Play Online Defense</button></article>
+                    <article class="online-hub-card"><div class="online-hub-icon"><img src="assets/mode-icons/online-race.png?v=20260808d" alt="Online Race icon"></div><div><h2>Online Race</h2><p>Race in private or ranked rooms, manage friends and clans, and view your online account.</p></div><button id="onlineHubRace" class="mp-primary" type="button">Open Online Race</button></article>
                 </main>
             </div>
         </section>
@@ -748,7 +1068,7 @@
                     <div class="mp-brand"><h1>ONLINE RACE</h1><p>Private 2–4 player Flappy Monkey matches</p></div>
                     <div class="mp-top-actions">
                         <div id="mpConnection" class="mp-connection">Offline</div>
-                        <button id="mpBackBtn" class="mp-secondary" type="button">Back to Game</button>
+                        <button id="mpBackBtn" class="mp-secondary" type="button">Back to Online Modes</button>
                     </div>
                 </header>
 
@@ -818,7 +1138,7 @@
                             <section id="mpConversation" class="mp-conversation mp-empty-conversation">
                                 <div class="mp-conversation-head"><h3 id="mpConversationTitle">Select a friend</h3><div><button id="mpGroupSettings" class="mp-secondary mp-hidden" type="button">Group Settings</button><button id="mpClearConversation" class="mp-danger mp-hidden" type="button">Clear Chat</button></div></div>
                                 <div id="mpMessages" class="mp-messages"><div class="mp-empty-state">Choose a friend to view your private messages.</div></div>
-                                <form id="mpMessageForm" class="mp-message-form mp-hidden"><input id="mpMessageFile" class="mp-hidden" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><button id="mpMessageAttach" class="mp-attach-button" type="button" title="Attach an image or GIF" aria-label="Attach an image or GIF">📎</button><div class="mp-message-compose"><textarea id="mpMessageInput" maxlength="500" rows="2" placeholder="Write a message to your friend..."></textarea><div id="mpMessageAttachment" class="mp-attachment-preview mp-hidden"></div></div><button class="mp-primary" type="submit">Send</button></form>
+                                <form id="mpMessageForm" class="mp-message-form mp-hidden"><input id="mpMessageFile" class="mp-hidden" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><button id="mpMessageAttach" class="mp-attach-button" type="button" title="Attach an image or GIF" aria-label="Attach an image or GIF"><img src="assets/ui-icons/attachment.png?v=20260808e" alt="" aria-hidden="true"></button><div class="mp-message-compose"><textarea id="mpMessageInput" maxlength="500" rows="2" placeholder="Write a message to your friend..."></textarea><div id="mpMessageAttachment" class="mp-attachment-preview mp-hidden"></div></div><button class="mp-primary" type="submit">Send</button></form>
                             </section>
                         </div>
                     </section>
@@ -918,7 +1238,7 @@
             <section class="mp-card mp-overlay-card mp-activity-card">
                 <div class="mp-public-profile-head"><div><h2>Global Live Activity</h2><div class="mp-note">Chat with everyone currently connected to Flappy Monkey.</div></div><button id="mpCloseActivity" class="mp-secondary" type="button">Close</button></div>
                 <div id="mpActivityList" class="mp-activity-list"></div>
-                <form id="mpActivityForm" class="mp-activity-form"><textarea id="mpActivityInput" maxlength="240" rows="2" placeholder="Message everyone online…"></textarea><button class="mp-primary" type="submit">Send</button></form>
+                <form id="mpActivityForm" class="mp-activity-form"><input id="mpActivityInput" type="text" maxlength="240" autocomplete="off" placeholder="Message everyone online…"><button class="mp-primary" type="submit">Send</button></form>
                 <div id="mpActivityError" class="mp-error"></div>
             </section>
         </div>
@@ -927,6 +1247,7 @@
                 <h2 id="mpGiftTitle">Send a Gift</h2>
                 <form id="mpGiftForm" class="mp-gift-form">
                     <label>Banana Market item<select id="mpGiftItem"></select></label>
+                    <div id="mpGiftPreview" class="mp-gift-preview" aria-live="polite"></div>
                     <label>Message (optional)<textarea id="mpGiftMessage" maxlength="180" rows="3" placeholder="Write something for your friend..."></textarea></label>
                     <div id="mpGiftCost" class="mp-note"></div>
                     <div id="mpGiftError" class="mp-error"></div>
@@ -959,13 +1280,13 @@
             <section class="mp-card mp-overlay-card mp-ranked-card"><div class="mp-public-profile-head"><h2>Season 1 Ranked</h2><button id="mpCloseRanked" class="mp-secondary" type="button">Close</button></div><div id="mpRankedContent"></div><div id="mpRankedError" class="mp-error"></div></section>
         </div>
         <section id="monkeyWorldScreen" aria-hidden="true">
-            <header class="mw-topbar"><div><h1>MONKEY WORLD</h1><p id="mwWorldStatus">Explore the Banana Coast</p></div><div class="mw-top-actions"><span id="mwTimeOfDay">DAY</span><span id="mwRoomCode"></span><button id="mwSocial" class="mp-primary" type="button">Friends & Messages</button><button id="mwLeave" class="mp-secondary" type="button">Back to Game</button></div></header>
-            <main id="mwJoinPanel" class="mw-join-panel mp-card"><div class="mw-join-hero"><span>🏝️</span><div><h2>Explore Banana Coast</h2><p>Walk around as your equipped monkey, chat, visit buildings, and show off your skins, titles, rank, level, and clan.</p></div></div><div class="mw-join-grid"><button id="mwJoinPublic" class="mp-primary" type="button"><strong>Public World</strong><span>Join anyone online · no room key</span></button><button id="mwCreatePrivate" type="button"><strong>Create Private World</strong><span>Get a code for friends</span></button><form id="mwJoinPrivate"><input id="mwPrivateCode" maxlength="5" placeholder="WORLD CODE" required><button class="mp-secondary" type="submit">Join Private</button></form></div><div id="mwJoinError" class="mp-error"></div></main>
+            <header class="mw-topbar"><div><h1>MONKEY WORLD</h1><p id="mwWorldStatus">Explore the Banana Coast</p></div><div class="mw-top-actions"><span id="mwTimeOfDay">DAY</span><span id="mwRoomCode"></span><button id="mwVoiceButton" class="mp-secondary" type="button" aria-expanded="false">Voice Off</button><button id="mwSocial" class="mp-primary" type="button">Friends & Messages</button><button id="mwSettings" class="mp-secondary" type="button">⚙ Settings</button><button id="mwLeave" class="mp-secondary" type="button">Back to Online Modes</button></div></header>
+            <main id="mwJoinPanel" class="mw-join-panel mp-card"><div class="mw-join-hero"><span><img src="assets/mode-icons/monkey-world.png?v=20260808e" alt="Monkey World"></span><div><h2>Explore Banana Coast</h2><p>Walk around as your equipped monkey, chat, visit buildings, and show off your skins, titles, rank, level, and clan.</p></div></div><div class="mw-join-grid"><button id="mwJoinPublic" class="mp-primary" type="button"><strong>Public World</strong><span>Join anyone online · no room key</span></button><button id="mwCreatePrivate" type="button"><strong>Create Private World</strong><span>Get a code for friends</span></button><form id="mwJoinPrivate"><input id="mwPrivateCode" maxlength="5" placeholder="WORLD CODE" required><button class="mp-secondary" type="submit">Join Private</button></form></div><div id="mwJoinError" class="mp-error"></div></main>
             <main id="mwGame" class="mw-game mp-hidden"><canvas id="monkeyWorldCanvas" width="1920" height="1080"></canvas><div class="mw-location"><strong id="mwLocation">Banana Coast Plaza</strong><span>Explore · meet friends · enter every landmark</span></div><button id="mwChatToggle" class="mw-chat-toggle" type="button" aria-label="Open world chat">💬</button><aside id="mwChat" class="mw-chat"><div class="mw-chat-head"><strong>WORLD CHAT</strong><span id="mwPlayerCount">0 monkeys</span><button id="mwChatClose" type="button" aria-label="Collapse world chat">×</button></div><div id="mwChatMessages"></div><form id="mwChatForm"><input id="mwChatInput" maxlength="180" placeholder="Chat with the world…"><button type="submit">Send</button></form></aside><div class="mw-controls"><b>WASD</b> / Left Stick to walk <span>·</span> <b>E</b> / A to enter</div><div id="mwTouchStick" class="mw-touch-stick" aria-label="Touch movement control"><i id="mwTouchKnob" class="mw-touch-knob"></i></div><button id="mwInteract" class="mp-primary mp-hidden" type="button">Enter</button><div id="mwGameError" class="mp-error"></div></main>
             <div id="mwBuildingModal" class="mp-overlay" aria-hidden="true"><section class="mp-card mp-overlay-card mw-building-card"><div class="mp-public-profile-head"><h2 id="mwBuildingTitle">Building</h2><button id="mwCloseBuilding" class="mp-secondary" type="button">Close</button></div><div id="mwBuildingContent"></div></section></div>
         </section>
         <section id="onlineDefenseScreen" aria-hidden="true">
-            <header class="od-topbar"><div><h1>ONLINE MONKEY DEFENSE</h1><p>Build an original live defense together or battle on parallel Banana Coast paths.</p></div><div class="od-top-actions"><span id="odConnection">Offline</span><button class="od-guide-open" data-open-defense-guide="online" type="button" aria-label="Open Monkey Defense Guide" title="Open Monkey Defense Guide">ⓘ Guide</button><button id="odSocial" class="mp-primary" type="button">Friends & Messages</button><button id="odLeave" class="mp-secondary" type="button">Back to Game</button></div></header>
+            <header class="od-topbar"><div><h1>ONLINE MONKEY DEFENSE</h1><p>Build an original live defense together or battle on parallel Banana Coast paths.</p></div><div class="od-top-actions"><span id="odConnection">Offline</span><button class="od-guide-open" data-open-defense-guide="online" type="button" aria-label="Open Monkey Defense Guide" title="Open Monkey Defense Guide">ⓘ Guide</button><button id="odSocial" class="mp-primary" type="button">Friends & Messages</button><button id="odLeave" class="mp-secondary" type="button">Back to Online Modes</button></div></header>
             <main id="odMenu" class="od-menu">
                 <section class="od-hero mp-card"><div><span class="od-shield">&#128737;</span><h2>Defend Banana Coast Online</h2><p>Public matchmaking uses the same Online Rank as Online Race. Private room-code matches use the same rules without changing rank.</p></div><div id="odRankCard" class="od-rank-card"><strong>Shared Online Rank</strong><span>Connecting to your ranked profile...</span><div class="od-rank-track"><i style="width:0%"></i></div></div></section>
                 <div class="od-menu-grid">
@@ -996,7 +1317,8 @@
     const elements = Object.fromEntries([
         'onlineStartupGate','startupSplash','startupLoadingText','startupSplashOffline','startupAuth','startupServerUrl','startupReconnect','startupStayOffline','startupLoginForm','startupLoginUsername','startupLoginPassword','startupRegisterForm','startupRegisterUsername','startupRegisterEmail','startupRegisterPassword','startupRegisterConfirm','startupAuthError','startupVerify','startupVerifyText','startupVerifyCode','startupVerifyButton','startupResendCode','startupCancelVerify','startupVerifyError','onlineConsentModal','onlineConsentTitle','onlineConsentText','onlineConsentYes','onlineConsentNo','multiplayerScreen','mpConnection','mpBackBtn','mpAuthView','mpServerUrl','mpLoginForm','mpLoginUsername','mpLoginPassword','mpRegisterForm','mpRegisterUsername','mpRegisterEmail','mpRegisterPassword','mpRegisterConfirm','mpAuthError','mpHomeView','mpAccountName','mpLogoutBtn','mpStats','mpCreateRoomBtn','mpJoinCode','mpJoinRoomBtn','mpSocialPanel','mpFriendUserId','mpAddFriendBtn','mpSocialError','mpFriendRequests','mpFriends','mpCreateGroup','mpGroups','mpOutgoingRequests','mpBlockedUsers','mpConversation','mpConversationTitle','mpGroupSettings','mpClearConversation','mpMessages','mpMessageForm','mpMessageInput','mpMessageFile','mpMessageAttach','mpMessageAttachment','mpHomeError','mpLobbyView','mpRoomCode','mpCopyRoomBtn','mpPlayers','mpVictorySelect','mpTargetField','mpTargetScore','mpDurationField','mpDuration','mpLivesSelect','mpGapSelect','mpMovingPipes','mpFriendlyPractice','mpRuleDescription','mpReadyBtn','mpStartMatchBtn','mpLeaveRoomBtn','mpLobbyError','mpRaceView','mpRaceObjective','mpRaceTimer','mpRaceStandings','multiplayerCanvas','mpResult','mpResultTitle','mpResultRows','mpReturnLobbyBtn','mpAccountDangerModal','mpDangerTitle','mpDangerDescription','mpDangerForm','mpDangerPassword','mpDangerPhraseLabel','mpDangerPhrase','mpDangerError','mpDangerConfirm','mpDangerCancel','mpInboxButton','mpInboxBadge','mpActivityButton','mpConnectShortcut','mpGoOfflineShortcut','mpFriendsShortcut','mpInboxModal','mpCloseInbox','mpShowGifts','mpShowAnnouncements','mpInboxList','mpActivityModal','mpCloseActivity','mpActivityList','mpActivityForm','mpActivityInput','mpActivityError','mpGiftModal','mpGiftTitle','mpGiftForm','mpGiftItem','mpGiftMessage','mpGiftCost','mpGiftError','mpCancelGift','mpPublicProfileModal','mpClosePublicProfile','mpPublicProfileContent','mpGroupModal','mpGroupModalTitle','mpCloseGroupModal','mpGroupForm','mpGroupName','mpGroupIconPreview','mpGroupIconFile','mpChooseGroupIcon','mpClearGroupIcon','mpGroupMembers','mpGroupError','mpSaveGroup','mpLeaveGroup','mpDeleteGroup','mpGlobalAnnouncement','mpToast'
     ].map((id) => [id, document.getElementById(id)]));
-    for (const id of ['onlineModesScreen','onlineHubClose','onlineHubSocial','onlineHubWorld','onlineHubDefense','onlineHubRace','mpSocialCenter','mpCloseSocialCenter','mpSocialCenterHost']) elements[id] = document.getElementById(id);
+    elements.mpGiftPreview = document.getElementById('mpGiftPreview');
+    for (const id of ['onlineModesScreen','onlineHubClose','onlineHubSocial','onlineHubWorld','onlineHubDuel','onlineHubDefense','onlineHubRace','mpSocialCenter','mpCloseSocialCenter','mpSocialCenterHost']) elements[id] = document.getElementById(id);
     elements.startupRegisterSubmit = document.getElementById('startupRegisterSubmit');
     elements.mpCreateParty = document.getElementById('mpCreateParty');
     elements.mpParty = document.getElementById('mpParty');
@@ -1014,7 +1336,7 @@
     elements.mpRankedContent = document.getElementById('mpRankedContent');
     elements.mpRankedError = document.getElementById('mpRankedError');
     elements.mpLiveEventBanner = document.getElementById('mpLiveEventBanner');
-    for (const id of ['monkeyWorldScreen','mwWorldStatus','mwTimeOfDay','mwRoomCode','mwSocial','mwLeave','mwJoinPanel','mwJoinPublic','mwCreatePrivate','mwJoinPrivate','mwPrivateCode','mwJoinError','mwGame','monkeyWorldCanvas','mwLocation','mwChatToggle','mwChat','mwChatClose','mwPlayerCount','mwChatMessages','mwChatForm','mwChatInput','mwTouchStick','mwTouchKnob','mwInteract','mwGameError','mwBuildingModal','mwBuildingTitle','mwCloseBuilding','mwBuildingContent']) elements[id] = document.getElementById(id);
+    for (const id of ['monkeyWorldScreen','mwWorldStatus','mwTimeOfDay','mwRoomCode','mwVoiceButton','mwSocial','mwSettings','mwLeave','mwJoinPanel','mwJoinPublic','mwCreatePrivate','mwJoinPrivate','mwPrivateCode','mwJoinError','mwGame','monkeyWorldCanvas','mwLocation','mwChatToggle','mwChat','mwChatClose','mwPlayerCount','mwChatMessages','mwChatForm','mwChatInput','mwTouchStick','mwTouchKnob','mwInteract','mwGameError','mwBuildingModal','mwBuildingTitle','mwCloseBuilding','mwBuildingContent']) elements[id] = document.getElementById(id);
     for (const id of ['onlineDefenseScreen','odConnection','odSocial','odLeave','odMenu','odRankCard','odQueueVersus','odQueueCoop','odCancelQueue','odQueueStatus','odCreateVersus','odCreateCoop','odJoinForm','odJoinCode','odLeaderboard','odMenuError','odLobby','odLobbyBadge','odRoomCode','odCopyCode','odLobbyPlayers','odLobbyNote','odStartPrivate','odLeaveRoom','odLobbyError','odGame','odGameMode','odWaveText','odBananas','odLives','odKills','odMarketReward','odScore','onlineDefenseCanvas','odTowerDeck','odSelection','odUpgradePower','odUpgradeTactical','odSell','odPowerRepair','odPowerFreeze','odPowerBomb','odPowerRally','odStartWave','odFastForward','odDefenseStatus','odOpponentStats','odForfeit','odGameError','odResult','odResultTitle','odResultBody','odResultReturn']) elements[id] = document.getElementById(id);
     elements.mpLobbyTitle = document.getElementById('mpLobbyTitle');
     const raceContext = elements.multiplayerCanvas.getContext('2d');
@@ -1087,7 +1409,7 @@
     }
 
     function giftTypeLabel(type) {
-        return ({ crate_ticket: 'Monkey Skin Crate', skin: 'Monkey Skin', trail: 'Monkey Trail', pipe_skin: 'Pipe Skin', powerup: 'Power-Up', explosion_vfx: 'Explosion VFX', title_fx: 'Title Style', profile_background: 'Profile Theme', cosmetic: 'Cosmetic', custom_emoji: 'Custom Chat Emoji' })[type] || 'Banana Market Item';
+        return ({ crate_ticket: 'Monkey Skin Crate', skin: 'Monkey Skin', trail: 'Monkey Trail', pipe_skin: 'Pipe Skin', powerup: 'Power-Up', explosion_vfx: 'Explosion VFX', title_fx: 'Title Style', profile_background: 'Profile Theme', cosmetic: 'Cosmetic', custom_emoji: 'Custom Chat Emoji', aura:'Aura', banner:'Banner', emote:'Monkey World Emote', monkey_xp:'Monkey XP' })[type] || 'Banana Market Item';
     }
 
     function localRewardReceipts() {
@@ -1147,7 +1469,7 @@
     }
 
     const MAIN_MENU_BLOCKING_IDS = [
-        'onlineStartupGate', 'onlineConsentModal', 'onlineModesScreen', 'mpSocialCenter', 'multiplayerScreen', 'monkeyWorldScreen', 'onlineDefenseScreen', 'mpInboxModal', 'mpGiftModal', 'mpAccountDangerModal', 'mpRewardModal',
+        'onlineStartupGate', 'onlineConsentModal', 'onlineModesScreen', 'mpSocialCenter', 'multiplayerScreen', 'monkeyWorldScreen', 'onlineDefenseScreen', 'monkeyDuelScreen', 'mpInboxModal', 'mpGiftModal', 'mpAccountDangerModal', 'mpRewardModal',
         'settingsPopup', 'skinMenu', 'titlesMenu', 'modeMenu', 'shopMenu', 'profileMenu', 'bananaPassMenu', 'inventoryMenu', 'collectionIndexPopup',
         'musicOptionsPopup', 'powerupsInfoPopup', 'monkeyDefenseGuidePopup', 'customTitleColorPopup', 'socialsPopup', 'unlockPopup',
         'crateOpeningPopup', 'crateOddsPopup', 'dailyQuestPopup', 'secretDecodePopup', 'towerDefenseScreen'
@@ -1166,12 +1488,35 @@
         return !MAIN_MENU_BLOCKING_IDS.some((id) => elementIsVisible(document.getElementById(id)));
     }
 
+    function isBaseGameSurfaceVisible() {
+        const mainCanvas = document.getElementById('canvas');
+        if (!elementIsVisible(mainCanvas)) return false;
+        return !MAIN_MENU_BLOCKING_IDS.some((id) => elementIsVisible(document.getElementById(id)));
+    }
+
     function isMainMenuScreen() {
         return Boolean(state.authenticated && isBaseMainMenuVisible());
     }
 
+    const ONLINE_GLOBAL_CONTROL_SCREEN_IDS = [
+        'onlineModesScreen', 'mpSocialCenter', 'multiplayerScreen',
+        'onlineDefenseScreen', 'monkeyWorldScreen', 'monkeyDuelScreen'
+    ];
+
+    function isOnlineSurfaceVisible() {
+        return ONLINE_GLOBAL_CONTROL_SCREEN_IDS.some((id) => {
+            const element = document.getElementById(id);
+            return Boolean(element && elementIsVisible(element)
+                && (element.classList.contains('open') || element.getAttribute('aria-hidden') === 'false'));
+        });
+    }
+
+    function shouldShowGlobalOnlineControls() {
+        return Boolean(state.authenticated && (isBaseMainMenuVisible() || isOnlineSurfaceVisible()));
+    }
+
     function updateInboxButton() {
-        elements.mpInboxButton.classList.toggle('open-account', isMainMenuScreen());
+        elements.mpInboxButton.classList.toggle('open-account', shouldShowGlobalOnlineControls());
         const count = unreadInboxCount();
         elements.mpInboxBadge.classList.toggle('show', count > 0);
         const badgeAriaHidden = count > 0 ? 'false' : 'true';
@@ -1234,13 +1579,12 @@
     }
 
     function updateActivityButton() {
-        const onMainMenu = Boolean(state.account && isBaseMainMenuVisible());
-        const inOnlineScreen = elements.multiplayerScreen.classList.contains('open') && state.account;
-        elements.mpActivityButton.classList.toggle('open-account', Boolean(onMainMenu || inOnlineScreen));
+        const showOnlineControls = shouldShowGlobalOnlineControls();
+        elements.mpActivityButton.classList.toggle('open-account', showOnlineControls);
         const offlineMainMenu = isBaseMainMenuVisible() && !state.authenticated;
         elements.mpConnectShortcut.classList.toggle('open-account', Boolean(offlineMainMenu));
-        const onlineMainMenu = isBaseMainMenuVisible() && state.authenticated;
-        elements.mpGoOfflineShortcut.classList.toggle('open-account', Boolean(onlineMainMenu));
+        elements.mpGoOfflineShortcut.classList.toggle('open-account', showOnlineControls);
+        document.body.classList.toggle('online-global-controls-visible', showOnlineControls);
         const baseMainMenu = isBaseMainMenuVisible();
         const connected = Boolean(state.authenticated && state.socket?.readyState === WebSocket.OPEN);
         elements.mpFriendsShortcut.classList.toggle('open-account', baseMainMenu);
@@ -1258,8 +1602,12 @@
             const time = new Date(entry.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
             const ownerDelete = state.account?.isOwner ? `<button class="mp-message-delete" type="button" data-delete-activity="${escapeHtml(entry.id)}">Delete</button>` : '';
             const profileButton = entry.userId ? `<button class="mp-chat-profile" type="button" data-chat-profile="${escapeHtml(entry.userId)}">View Profile</button>` : '';
-            return `<article class="mp-activity-entry ${entry.special ? 'special' : ''}"><div class="mp-activity-name">${entry.special ? '🔴 ' : ''}${escapeHtml(entry.username || 'Monkey')}${platformBadgeHtml(entry.platform)} ${profileButton}</div>${sharedTitleHtml(entry.userId === state.account?.id ? localTitleProfile() : entry, 'mp-chat-title')}<div>${messageHtml(entry.text)}</div><div class="mp-message-meta"><span class="mp-message-time">${escapeHtml(time)}</span>${ownerDelete}</div></article>`;
+            const presentation = entry.userId === state.account?.id ? { ...entry, ...localTitleProfile() } : entry;
+            return `<article class="mp-activity-entry ${entry.special ? 'special' : ''}"><div class="mp-activity-name">${entry.special ? '🔴 ' : ''}${sharedNameHtml(presentation, 'Monkey')}${platformBadgeHtml(entry.platform)} ${profileButton}</div>${sharedTitleHtml(presentation, 'mp-chat-title')}<div>${messageHtml(entry.text)}</div><div class="mp-message-meta"><span class="mp-message-time">${escapeHtml(time)}</span>${ownerDelete}</div></article>`;
         }).join('') : '<div class="mp-empty-state">No global activity yet. Start the conversation!</div>';
+        [...elements.mpActivityList.querySelectorAll('.mp-activity-entry')].forEach((entry, index) => {
+            if (entries[index]?.userId) window.FlappyBanners?.applyTo?.(entry, entries[index].banner || (entries[index].userId === state.account?.id ? currentBanner() : 'skin-default'));
+        });
         elements.mpActivityList.scrollTop = elements.mpActivityList.scrollHeight;
     }
 
@@ -1333,7 +1681,9 @@
                     </span>`).join('')}</div>
                 ${hiddenCount ? `<button class="mp-live-event-more" type="button" aria-expanded="${liveEventListExpanded}" aria-label="${liveEventListExpanded ? 'Hide extra live events' : `Show ${hiddenCount} more live events`}">${liveEventListExpanded ? 'Hide' : `+${hiddenCount}`}</button>` : ''}`;
         }
-        elements.mpLiveEventBanner.classList.add('show');
+        const shouldShow = isBaseGameSurfaceVisible();
+        elements.mpLiveEventBanner.classList.toggle('show', shouldShow);
+        if (!shouldShow) elements.mpLiveEventBanner.classList.remove('expanded');
     }
 
     elements.mpLiveEventBanner.addEventListener('click', (event) => {
@@ -1351,7 +1701,7 @@
     });
 
     const MONKEY_WORLD_WIDTH = 3200;
-    const MONKEY_WORLD_HEIGHT = 1800;
+    const MONKEY_WORLD_HEIGHT = 2200;
     const MONKEY_WORLD_BUILDINGS = [
         { id: 'market', name: 'Banana Market', icon: '🍌', x: 250, y: 270, w: 900, h: 560, color: '#df922c', highlight: '#ffca4d', roof: '#ffe367', doorX: 885, doorY: 742, collision: { x: 230, y: 205, w: 875, h: 445 }, occlusion: { x: 235, y: 260, w: 950, h: 620, frontY: 835 } },
         { id: 'wardrobe', name: 'Monkey Style', icon: '👕', x: 1290, y: 170, w: 620, h: 440, color: '#784ac3', highlight: '#bc78ed', roof: '#e2a6ff', doorX: 1635, doorY: 602, collision: { x: 1290, y: 165, w: 610, h: 385 }, occlusion: { x: 1270, y: 150, w: 670, h: 535, frontY: 630 } },
@@ -1359,9 +1709,68 @@
         { id: 'arcade', name: 'Monkey Arcade', icon: '🕹️', x: 2600, y: 600, w: 600, h: 500, color: '#2d5fc9', highlight: '#5aa7ff', roof: '#78e5ff', doorX: 2785, doorY: 1045, collision: { x: 2760, y: 610, w: 440, h: 260 }, occlusion: { x: 2580, y: 580, w: 620, h: 600, frontY: 1110 } },
         { id: 'clan', name: 'Clan Hall', icon: '🛡️', x: 1840, y: 970, w: 940, h: 640, color: '#237648', highlight: '#54bb68', roof: '#ffe06c', doorX: 2145, doorY: 1415, collisions: [{ x: 1885, y: 965, w: 725, h: 390 }, { x: 2580, y: 1300, w: 155, h: 260 }], occlusion: { x: 1825, y: 950, w: 980, h: 700, frontY: 1560 } }
     ];
+    const MONKEY_WORLD_INTERIOR_STATIONS = Object.freeze({
+        market:[{x:20,y:30,label:'Use Crate Counter',selector:'[data-world-shop="crates"]'},{x:50,y:20,label:'Use Boost Shelf',selector:'[data-world-shop="boosts"]'},{x:80,y:30,label:'Browse Cosmetics Wall',selector:'[data-world-shop="cosmetics"]'}],
+        wardrobe:[{x:20,y:29,label:'Open Monkey Wardrobe',selector:'[data-world-wardrobe="skins"]'},{x:50,y:22,label:'Open Inventory',selector:'[data-world-inventory]'},{x:80,y:29,label:'Open Title Studio',selector:'[data-world-wardrobe="titles"]'}],
+        cafe:[{x:27,y:29,label:'Order Banana Smoothie',selector:'[data-world-activity="smoothie"]'},{x:73,y:29,label:'Sit at Friends Table',selector:'[data-world-social]'}],
+        arcade:[{x:27,y:29,label:'Use Online Cabinets',selector:'[data-world-online]'},{x:73,y:29,label:'Use Profile Terminal',selector:'[data-world-social]'}],
+        clan:[{x:27,y:29,label:'Use Clan Command Table',selector:'#mwOpenClanHall'},{x:73,y:29,label:'Open Recruitment Board',selector:'[data-world-social]'}]
+    });
     const monkeyWorldRenderer = window.FlappyMonkeyWorldRenderer
         ? new window.FlappyMonkeyWorldRenderer(MONKEY_WORLD_WIDTH, MONKEY_WORLD_HEIGHT)
         : null;
+    let monkeyWorld3D = null;
+    let monkeyWorld3DRenderer = null;
+
+    function ensureMonkeyWorld3D() {
+        if (monkeyWorld3D || !monkeyWorld3DRenderer) return monkeyWorld3D;
+        monkeyWorld3D = new monkeyWorld3DRenderer({
+            root:elements.mwGame,
+            worldWidth:MONKEY_WORLD_WIDTH,
+            worldHeight:MONKEY_WORLD_HEIGHT,
+            buildings:MONKEY_WORLD_BUILDINGS
+        });
+        elements.mwGame.classList.toggle('mw-three-active', Boolean(monkeyWorld3D?.ready));
+        return monkeyWorld3D;
+    }
+
+    window.FlappyMonkeyWorld3DReady?.then?.((Renderer3D) => {
+        if (!Renderer3D) return;
+        monkeyWorld3DRenderer = Renderer3D;
+        const local3DPreview = /^(127\.0\.0\.1|localhost)$/i.test(location.hostname)
+            && new URLSearchParams(location.search).has('monkey-world-3d-preview');
+        if (!local3DPreview && !monkeyWorld.joined) return;
+        ensureMonkeyWorld3D();
+        if (local3DPreview && monkeyWorld3D?.ready) {
+            elements.monkeyWorldScreen.classList.add('open');
+            elements.monkeyWorldScreen.setAttribute('aria-hidden','false');
+            elements.mwJoinPanel.classList.add('mp-hidden');
+            elements.mwGame.classList.remove('mp-hidden');
+            const previewParams=new URLSearchParams(location.search),previewEventType=previewParams.get('event')||'',previewInterior=previewParams.get('interior')||'',previewSkin=/\.(?:png|gif|webp)$/i.test(previewParams.get('skin')||'')?previewParams.get('skin'):'Default Monkey.png',previewX=Math.max(140,Math.min(MONKEY_WORLD_WIDTH-140,Number(previewParams.get('x'))||1600)),previewY=Math.max(145,Math.min(MONKEY_WORLD_HEIGHT-145,Number(previewParams.get('y'))||1120));
+            monkeyWorld.joined=true;monkeyWorld.x=previewX;monkeyWorld.y=previewY;
+            const previewPirateSpawns=[[720,850],[1060,930],[1390,730],[1780,760],[2110,920],[2500,850],[2760,1120],[970,1510],[2260,1650]];
+            const previewEvent=previewEventType==='boss'?{id:'PREVIEW_BOSS',type:'boss_breaker',combat:true,boss:{id:'BOSS_BREAKER',x:1600,y:1740,hp:7450,maxHp:11100},entities:[{id:'HP',type:'health_potion',x:1380,y:1810},{id:'SHIELD',type:'shield_potion',x:1840,y:1810}]}:previewEventType==='pirates'?{id:'PREVIEW_PIRATES',type:'pirate_invasion',combat:true,wave:3,totalWaves:5,enemies:previewPirateSpawns.map(([x,y],index)=>({id:`P${index}`,name:`Pirate ${index+1}`,x,y,hp:90+index*3,maxHp:180}))}:previewEventType==='snow'?{id:'PREVIEW_SNOW',type:'snowstorm',entities:[{id:'ICE',type:'frozen_treasure',x:1830,y:1880}]}:previewEventType==='dance'?{id:'PREVIEW_DANCE',type:'dance_party',danceCenter:[1600,930]}:previewEventType==='fireworks'?{id:'PREVIEW_FIREWORKS',type:'firework_festival',launchers:[{id:'L1',x:1250,y:1050},{id:'L2',x:1950,y:1050}]}:previewEventType==='pvp'?{id:'PREVIEW_PVP',type:'monkey_pvp',combat:true,pvp:true,leaderboard:[{profileId:'PREVIEW_LOCAL',alive:true},{profileId:'PREVIEW_FRIEND',alive:true}]}:previewEventType==='bananas'?{id:'PREVIEW_BANANAS',type:'banana_rain',entities:Array.from({length:16},(_,index)=>({id:`B${index}`,type:'banana',x:950+(index%8)*180,y:650+Math.floor(index/8)*420}))}:null;
+            const previewPlayers = [
+                { profileId:'PREVIEW_LOCAL', username:'Banana Explorer', skin:previewSkin, aura:'golden-spark', banner:'banana-peel', equippedTitle:'Coast Pathfinder', level:18, x:previewX, y:previewY, direction:'down', moving:false },
+                { profileId:'PREVIEW_FRIEND', username:'Jungle Friend', skin:'Jungle Monkey.png', aura:'grove-orbit', banner:'skin-jungle-monkey', equippedTitle:'Tropical Legend', level:42, x:1740, y:1040, direction:'left', moving:true }
+            ];
+            const previewLoop = (previewNow) => {
+                if (!new URLSearchParams(location.search).has('monkey-world-3d-preview')) return;
+                previewPlayers[1].x = 1740 + Math.sin(previewNow * .00045) * 110;
+                previewPlayers[1].y = 1040 + Math.cos(previewNow * .00045) * 60;
+                try {
+                    monkeyWorld3D.render({ now:previewNow, players:previewPlayers, event:previewEvent, phase:{ name:previewEventType==='fireworks'?'NIGHT':'DAY' }, localX:previewX, localY:previewY, localProfileId:'PREVIEW_LOCAL', interior:previewInterior?{id:previewInterior,x:50+Math.sin(previewNow*.00045)*24,y:67+Math.cos(previewNow*.00045)*16,skin:previewSkin,direction:Math.sin(previewNow*.00045)<0?'left':'right',moving:true}:null });
+                    document.documentElement.dataset.monkeyWorld3dFrame = 'rendered';
+                } catch (error) {
+                    document.documentElement.dataset.monkeyWorld3dFrame = `error:${String(error?.message || error).slice(0,160)}`;
+                    console.error('Monkey World 3D preview frame failed.', error);
+                    return;
+                }
+                requestAnimationFrame(previewLoop);
+            };
+            requestAnimationFrame(previewLoop);
+        }
+    });
 
     function worldImage(path) {
         if (!monkeyWorld.images.has(path)) {
@@ -1384,12 +1793,22 @@
 
     function stopMonkeyWorldLoop() {
         monkeyWorld.active = false;
+        monkeyWorld.menuBackdropFrozen = false;
+        document.documentElement.classList.remove('mw-full-menu-open');
+        stopMonkeyWorldEventAudio({ resumeMain:true });
+        stopAllWorldEmoteAudio();
         if (monkeyWorld.animationFrame) cancelAnimationFrame(monkeyWorld.animationFrame);
         monkeyWorld.animationFrame = null;
         monkeyWorld.keys.clear();
         monkeyWorld.touchX = 0;
         monkeyWorld.touchY = 0;
         monkeyWorld.touchPointerId = null;
+        monkeyWorld.currentInterior = null;
+        monkeyWorld.nearbyInteriorStation = null;
+        monkeyWorld.interiorX = 50;
+        monkeyWorld.interiorY = 80;
+        monkeyWorld.localEmote = null;
+        monkeyWorld3D?.exitInterior?.();
         if (elements.mwTouchKnob) elements.mwTouchKnob.style.transform = 'translate(0px, 0px)';
     }
 
@@ -1442,15 +1861,22 @@
         monkeyWorld.pendingChatText = '';
         monkeyWorld.pendingChatNeedsResend = false;
         monkeyWorld.pausedForMenu = false;
+        monkeyWorld.currentInterior = null;
+        monkeyWorld.nearbyInteriorStation = null;
+        monkeyWorld.interiorX = 50;
+        monkeyWorld.interiorY = 80;
+        monkeyWorld3D?.exitInterior?.();
         clearTimeout(monkeyWorld.menuReturnTimer);
         monkeyWorld.menuReturnTimer = null;
         elements.monkeyWorldScreen.classList.remove('menu-underlay');
         monkeyWorld.players.clear();
+        window.FlappyWorldEvents?.syncWorld?.(null);
         stopMonkeyWorldLoop();
         elements.monkeyWorldScreen.classList.remove('open');
         elements.monkeyWorldScreen.setAttribute('aria-hidden', 'true');
         elements.mwGame.classList.add('mp-hidden');
         elements.mwJoinPanel.classList.remove('mp-hidden');
+        window.dispatchEvent(new CustomEvent('flappy-monkey-world-roster', { detail:{ joined:false, localId:state.account?.id || '', players:[] } }));
     }
 
     function startMonkeyWorldLoop() {
@@ -1465,10 +1891,13 @@
         const canManage = state.account?.isOwner || monkeyWorld.world?.canManage;
         const messages = monkeyWorld.messages.filter((message) => !blocked.has(message.fromId));
         elements.mwChatMessages.innerHTML = messages.length ? messages.map((message) => {
+            const presentation = message.fromId === state.account?.id
+                ? { ...message, banner: currentBanner(), ...localTitleProfile() }
+                : message;
             const time = new Date(Number(message.createdAt) || Date.now()).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
-            const name = message.fromId ? `<button class="mw-chat-name" data-chat-profile="${escapeHtml(message.fromId)}" type="button">${escapeHtml(message.username)}${platformBadgeHtml(message.platform)}</button>` : `<strong>${escapeHtml(message.username)}</strong>`;
+            const name = message.fromId ? `<button class="mw-chat-name" data-chat-profile="${escapeHtml(message.fromId)}" type="button">${sharedNameHtml(presentation, 'Monkey')}${platformBadgeHtml(message.platform)}</button>` : `<strong>${sharedNameHtml(presentation, 'Monkey')}</strong>`;
             const remove = canManage ? `<button class="mw-chat-delete" data-delete-world-message="${escapeHtml(message.id)}" type="button">Delete</button>` : '';
-            return `<article><div class="mw-chat-message-head">${name}<span>${escapeHtml(time)}</span>${remove}</div>${sharedTitleHtml(message.fromId === state.account?.id ? localTitleProfile() : message, 'mp-chat-title')}<div class="mw-chat-message-body">${messageHtml(message.text)}</div></article>`;
+            return `<article ${bannerAttributesFor(presentation)}><div class="mw-chat-message-head">${name}<span>${escapeHtml(time)}</span>${remove}</div>${sharedTitleHtml(presentation, 'mp-chat-title')}<div class="mw-chat-message-body">${messageHtml(message.text)}</div></article>`;
         }).join('') : '<div class="mp-empty-state">World chat is quiet. Say hello!</div>';
         elements.mwChatMessages.scrollTop = elements.mwChatMessages.scrollHeight;
         elements.mwPlayerCount.textContent = `${monkeyWorld.players.size} ${monkeyWorld.players.size === 1 ? 'monkey' : 'monkeys'}`;
@@ -1478,9 +1907,16 @@
         const previousMessageIds = new Set(monkeyWorld.messages.map((message) => message.id));
         monkeyWorld.world = world;
         monkeyWorld.joined = true;
+        ensureMonkeyWorld3D();
         monkeyWorld.resumeAfterReconnect = null;
         monkeyWorld.messages = Array.isArray(world.messages) ? world.messages : [];
         monkeyWorld.players = new Map((world.players || []).map((player) => [player.id, { ...player, receivedAt: performance.now() }]));
+        window.FlappyWorldEvents?.syncWorld?.(world);
+        syncMonkeyWorldEventAudio(world?.event || null);
+        if (world.event && monkeyWorld.currentInterior) {
+            closeWorldBuilding();
+            showToast('Buildings are locked until the Monkey World event ends.');
+        }
         const local = [...monkeyWorld.players.values()].find((player) => player.profileId === state.account?.id);
         if (local && !monkeyWorld.active) {
             monkeyWorld.x = local.x;
@@ -1509,6 +1945,9 @@
             elements.monkeyWorldScreen.setAttribute('aria-hidden', 'false');
         }
         renderMonkeyWorldChat();
+        window.dispatchEvent(new CustomEvent('flappy-monkey-world-roster', {
+            detail:{ joined:true, localId:state.account?.id || '', players:[...monkeyWorld.players.values()] }
+        }));
         startMonkeyWorldLoop();
     }
 
@@ -1561,7 +2000,7 @@
             // These widths cover the painted roads and their sidewalks. The
             // previous centre-line-only mask created invisible walls.
             { width: 350, points: [[80,900],[650,845],[1070,880],[1570,835],[2070,880],[2550,820],[3140,830]] },
-            { width: 330, points: [[1600,80],[1580,510],[1580,830],[1570,1190],[1570,1690]] },
+            { width: 330, points: [[1600,80],[1580,510],[1580,830],[1570,1190],[1590,1840],[1600,2050]] },
             { width: 290, points: [[540,900],[700,650],[900,835]] },
             { width: 300, points: [[1960,930],[2310,690],[2700,650]] },
             { width: 300, points: [[100,1410],[520,1320],[820,1510],[1190,1500],[1570,1390]] },
@@ -1573,7 +2012,7 @@
             { width: 240, points: [[900,900],[900,720]] },
             { width: 235, points: [[1580,510],[1635,650]] },
             { width: 245, points: [[2260,700],[2440,760]] },
-            { width: 280, points: [[2020,1680],[2440,1580],[2800,1580],[3150,1660]] },
+            { width: 340, points: [[450,1840],[900,1810],[1280,1850],[1590,1840],[1910,1850],[2250,1815],[2580,1840],[2900,1810],[3150,1950]] },
             // Stone stairs and the upper cliff walk.
             { width: 210, points: [[1080,170],[1100,390],[1210,560],[1430,700]] },
             // Market deck, bridges and the complete lower-left boardwalk loop.
@@ -1599,7 +2038,8 @@
             { x: 2300, y: 1580, rx: 620, ry: 265 },
             { x: 2050, y: 1660, rx: 300, ry: 205 },
             { x: 520, y: 1450, rx: 430, ry: 260 },
-            { x: 1540, y: 1680, rx: 440, ry: 165 }
+            { x: 1540, y: 1680, rx: 440, ry: 165 },
+            { x: 1600, y: 1870, rx: 1490, ry: 330 }
         ];
         if (pavedAreas.some((area) => ((x - area.x) / area.rx) ** 2 + ((y - area.y) / area.ry) ** 2 <= 1)) return true;
         return paths.some((path) => distanceToWorldPath(x, y, path.points) <= path.width / 2);
@@ -1620,8 +2060,10 @@
 
     function openWorldBuilding(building) {
         if (!building) return;
-        monkeyWorld.currentInterior = building.id;
-        monkeyWorld.nearbyInteriorStation = null;
+        if (window.FlappyWorldEvents?.current?.()) {
+            showToast('Buildings are locked while a Monkey World event is active.', true);
+            return;
+        }
         monkeyWorld.keys.clear();
         elements.mwBuildingModal.dataset.building = building.id;
         elements.mwBuildingTitle.textContent = `${building.icon} ${building.name}`;
@@ -1636,32 +2078,64 @@
         const actions = building.id === 'market'
             ? [action('🎁','Crate Counter','Preview crate contents and open saved crates','data-world-shop="crates"'), action('⚡','Boost Shelf','Buy, stack, activate, or deactivate boost tickets','data-world-shop="boosts"'), action('✨','Cosmetics Wall','Browse trails, styles, themes, and emojis','data-world-shop="cosmetics"')]
             : building.id === 'wardrobe'
-                ? [action('🐵','Monkey Wardrobe','Choose and preview an unlocked monkey','data-world-wardrobe="skins"'), action('🎟️','Title Studio','Equip titles and title styles','data-world-wardrobe="titles"')]
+                ? [action('🐵','Monkey Wardrobe','Choose and preview an unlocked monkey','data-world-wardrobe="skins"'), action('🎒','Inventory','Equip cosmetics and use saved tickets','data-world-inventory'), action('🎟️','Title Studio','Equip titles and title styles','data-world-wardrobe="titles"')]
                 : building.id === 'cafe'
                     ? [action('🥤','Smoothie Bar','Enjoy a fresh banana smoothie','data-world-activity="smoothie"'), action('💬','Friends Table','Meet friends, manage parties, and read messages','data-world-social')]
                     : building.id === 'arcade'
                         ? [action('🎮','Online Cabinets','Browse every online game mode','data-world-online'), action('🏆','Profile Terminal','Open friends, profiles, messages, and achievements','data-world-social')]
                         : [action('🛡️','Clan Command Table','Open your Clan Headquarters','id="mwOpenClanHall"'), action('👥','Recruitment Board','Invite friends and manage your social list','data-world-social')];
-        elements.mwBuildingContent.innerHTML = `<div class="mw-building-menu mw-building-menu-${building.id}"><section class="mw-building-menu-hero"><span>${building.icon}</span><div><p class="mw-interior-kicker">WELCOME TO</p><h3>${escapeHtml(building.name)}</h3><strong>${roomIntro[0]}</strong><p>${roomIntro[1]}</p></div></section><section class="mw-building-services"><div class="mw-building-services-head"><div><small>BUILDING SERVICES</small><h4>What would you like to do?</h4></div><span>${actions.length} destinations</span></div><div class="mw-building-action-grid">${actions.join('')}</div></section><footer class="mw-building-menu-footer"><span>Choose a service above. Your monkey stays safely outside while you browse.</span><button class="mp-danger" data-world-exit type="button">Exit to Banana Coast</button></footer></div>`;
-        elements.mwBuildingModal.classList.add('open');
-        elements.mwBuildingModal.setAttribute('aria-hidden', 'false');
+        elements.mwBuildingContent.innerHTML = `<div class="mw-building-menu mw-building-menu-${building.id}"><section class="mw-building-menu-hero"><span>${building.icon}</span><div><p class="mw-interior-kicker">WELCOME TO</p><h3>${escapeHtml(building.name)}</h3><strong>${roomIntro[0]}</strong><p>${roomIntro[1]}</p></div></section><section class="mw-building-services"><div class="mw-building-services-head"><div><small>BUILDING SERVICES</small><h4>What would you like to do?</h4></div><span>${actions.length} destinations</span></div><div class="mw-building-action-grid">${actions.join('')}</div></section><footer class="mw-building-menu-footer"><span>Walk to a glowing station and press E to use it.</span><button class="mp-danger" data-world-exit type="button">Exit to Banana Coast</button></footer></div>`;
+        if (!monkeyWorld3D?.ready) {
+            // The HTML services panel is the safe fallback when WebGL/Three.js
+            // is unavailable. Previously we switched to invisible interior
+            // coordinates while continuing to render the outdoor fallback,
+            // which made the monkey appear permanently frozen.
+            monkeyWorld.currentInterior = null;
+            monkeyWorld.nearbyInteriorStation = null;
+            monkeyWorld.pausedForMenu = true;
+            elements.mwBuildingModal.classList.add('open');
+            elements.mwBuildingModal.setAttribute('aria-hidden', 'false');
+            showToast(`Opened ${building.name}.`);
+            return;
+        }
+        monkeyWorld.currentInterior = building.id;
+        monkeyWorld.interiorX = 50;
+        monkeyWorld.interiorY = 82;
+        monkeyWorld.nearbyInteriorStation = null;
+        elements.mwBuildingModal.classList.remove('open');
+        elements.mwBuildingModal.setAttribute('aria-hidden', 'true');
+        monkeyWorld3D.enterInterior(building.id);
+        showToast(`Entered ${building.name}. Walk to a glowing station and press E.`);
     }
 
     function closeWorldBuilding() {
         monkeyWorld.currentInterior = null;
         monkeyWorld.nearbyInteriorStation = null;
         monkeyWorld.keys.clear();
+        monkeyWorld.pausedForMenu = false;
         elements.mwBuildingModal.classList.remove('open');
         elements.mwBuildingModal.setAttribute('aria-hidden', 'true');
+        monkeyWorld3D?.exitInterior?.();
         delete elements.mwBuildingModal.dataset.building;
     }
 
+    function activeInteriorStations(){return monkeyWorld.currentInterior?[...(MONKEY_WORLD_INTERIOR_STATIONS[monkeyWorld.currentInterior]||[]),{x:50,y:91,label:'Exit to Banana Coast',exit:true}]:[];}
+    function updateInteriorProximity(){
+        if(!monkeyWorld.currentInterior){monkeyWorld.nearbyInteriorStation=null;return null;}const nearest=activeInteriorStations().map(station=>({...station,distance:Math.hypot(monkeyWorld.interiorX-station.x,monkeyWorld.interiorY-station.y)})).sort((a,b)=>a.distance-b.distance)[0]||null;monkeyWorld.nearbyInteriorStation=nearest&&nearest.distance<=15?nearest:null;return monkeyWorld.nearbyInteriorStation;
+    }
+    function activateWorldInteraction(){
+        if(monkeyWorld.currentInterior){const station=updateInteriorProximity();if(!station){showToast('Walk closer to a glowing station first.',true);return;}if(station.exit){closeWorldBuilding();return;}const action=elements.mwBuildingContent.querySelector(station.selector);if(action)action.click();return;}
+        if(monkeyWorld.nearbyBuilding)openWorldBuilding(monkeyWorld.nearbyBuilding);
+    }
     const WORLD_EXTERNAL_MENU_IDS = [
         'shopMenu','skinMenu','titlesMenu','inventoryMenu','unlockPopup','crateOpeningPopup','crateOddsPopup',
-        'powerupsInfoPopup','customTitleColorPopup','mpRewardModal','mpGiftModal','mpSocialCenter','mpClanModal','onlineModesScreen'
+        'settingsPopup','musicOptionsPopup','powerupsInfoPopup','customTitleColorPopup','profileMenu','bananaPassMenu',
+        'socialsPopup','secretDecodePopup','dailyQuestPopup','monkeyDefenseGuidePopup','mpRewardModal','mpGiftModal',
+        'mpSocialCenter','mpClanModal','onlineModesScreen'
     ];
 
     function worldExternalMenuVisible() {
+        if (elements.onlineModesScreen?.classList.contains('open')) return true;
         return WORLD_EXTERNAL_MENU_IDS.some((id) => elementIsVisible(document.getElementById(id)));
     }
 
@@ -1706,6 +2180,11 @@
 
     function restoreWorldAfterMenu(force = false) {
         if (!monkeyWorld.pausedForMenu || !monkeyWorld.joined) return;
+        if (elements.onlineModesScreen?.classList.contains('open')) {
+            clearTimeout(monkeyWorld.menuReturnTimer);
+            monkeyWorld.menuReturnTimer = null;
+            return;
+        }
         if (!force && worldExternalMenuVisible()) {
             scheduleWorldMenuReturn();
             return;
@@ -1720,6 +2199,18 @@
     }
     window.restoreMonkeyWorldAfterMenu = restoreWorldAfterMenu;
 
+    const sharedSettingsPopup = document.getElementById('settingsPopup');
+    sharedSettingsPopup?.addEventListener('flappy:settings-open', () => {
+        if (!monkeyWorld.joined || !elements.monkeyWorldScreen.classList.contains('open')) return;
+        monkeyWorld.pausedForMenu = true;
+        monkeyWorld.keys.clear();
+        elements.monkeyWorldScreen.classList.add('menu-underlay');
+        scheduleWorldMenuReturn();
+    });
+    sharedSettingsPopup?.addEventListener('flappy:settings-close', () => {
+        if (monkeyWorld.joined && monkeyWorld.pausedForMenu) restoreWorldAfterMenu();
+    });
+
     // Base-game pickers briefly hide/rebuild after purchases, skin changes, and
     // crate transitions. Use a grace period and include every nested overlay so
     // that temporary rebuild is not mistaken for the player closing the menu.
@@ -1730,14 +2221,19 @@
             if (monkeyWorld.pausedForMenu && !elementIsVisible(menu)) scheduleWorldMenuReturn();
         }).observe(menu, { attributes:true, attributeFilter:['style', 'class'] });
     }
-    new MutationObserver(() => {
+    const worldExternalMenuObserver = new MutationObserver(() => {
         if (!monkeyWorld.pausedForMenu) return;
         if (worldExternalMenuVisible()) {
-            elements.monkeyWorldScreen.classList.add('open', 'menu-underlay');
-            elements.monkeyWorldScreen.setAttribute('aria-hidden', 'false');
+            if (!elements.monkeyWorldScreen.classList.contains('open')) elements.monkeyWorldScreen.classList.add('open');
+            if (!elements.monkeyWorldScreen.classList.contains('menu-underlay')) elements.monkeyWorldScreen.classList.add('menu-underlay');
+            if (elements.monkeyWorldScreen.getAttribute('aria-hidden') !== 'false') elements.monkeyWorldScreen.setAttribute('aria-hidden', 'false');
         }
         scheduleWorldMenuReturn();
-    }).observe(document.body, { subtree:true, attributes:true, attributeFilter:['style','class','aria-hidden'] });
+    });
+    for (const menuId of WORLD_EXTERNAL_MENU_IDS) {
+        const menu = document.getElementById(menuId);
+        if (menu) worldExternalMenuObserver.observe(menu, { attributes:true, attributeFilter:['style','class','aria-hidden'] });
+    }
 
     function monkeyWorldPhase() {
         const elapsed = ((Date.now() + state.serverOffset - Number(monkeyWorld.world?.dayCycleStartedAt || Date.now())) / 1000 % 360 + 360) % 360;
@@ -1750,26 +2246,21 @@
     function monkeyWorldViewport() {
         const canvas = elements.monkeyWorldCanvas;
         const rect = canvas.getBoundingClientRect();
-        const cssWidth = Math.max(1, Math.round(rect.width || innerWidth));
-        const cssHeight = Math.max(1, Math.round(rect.height || innerHeight));
-        // Preserve the phone's real aspect ratio and zoom its camera out. The
-        // old 640px minimum squeezed a landscape buffer into portrait.
-        const mobileCameraZoom = LOCAL_MOBILE_DEVICE || matchMedia('(pointer: coarse)').matches ? 1.62 : 1;
-        const viewWidth = Math.min(MONKEY_WORLD_WIDTH, Math.round(cssWidth * mobileCameraZoom));
-        const viewHeight = Math.min(MONKEY_WORLD_HEIGHT, Math.round(cssHeight * mobileCameraZoom));
-        const mobileWorld = LOCAL_MOBILE_DEVICE || matchMedia('(pointer: coarse)').matches || cssWidth <= 760;
-        // A 1× internal buffer is already sharp at the phone's CSS size and
-        // avoids pushing more than two million pixels through every world
-        // frame on tall devices. Desktop keeps its higher-density buffer.
-        const density = mobileWorld ? 1 : Math.min(1.75, Math.max(1, Number(devicePixelRatio) || 1));
-        const pixelWidth = Math.round(cssWidth * density);
-        const pixelHeight = Math.round(cssHeight * density);
+        const viewWidth = Math.max(640, Math.round(rect.width || innerWidth));
+        const viewHeight = Math.max(360, Math.round(rect.height || innerHeight));
+        // The 2D canvas is only a fallback once the WebGL coast is ready. Keeping
+        // a second full-screen high-DPI backing store alive behind Three.js was
+        // wasting several megapixels of memory and caused large allocation
+        // stalls whenever the window or an overlay changed size.
+        const density = monkeyWorld3D?.ready ? 1 : Math.min(1.5, Math.max(1, Number(devicePixelRatio) || 1));
+        const pixelWidth = Math.round(viewWidth * density);
+        const pixelHeight = Math.round(viewHeight * density);
         if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
             canvas.width = pixelWidth;
             canvas.height = pixelHeight;
         }
         const context = canvas.getContext('2d');
-        context.setTransform(pixelWidth / viewWidth, 0, 0, pixelHeight / viewHeight, 0, 0);
+        context.setTransform(density, 0, 0, density, 0, 0);
         return { context, viewWidth, viewHeight };
     }
 
@@ -1783,11 +2274,113 @@
         return 'Banana Coast Plaza';
     }
 
+    function drawWorldEmoteVisuals(context,player,id,time,perspective){
+        if(!id)return;
+        const p=Math.max(.7,Math.min(1.2,Number(perspective)||1));
+        const x=Number(player.x)||0,y=(Number(player.y)||0)-48,phase=time*Math.PI*2,pulse=(Math.sin(phase)+1)/2;
+        const ring=(rx,ry,color,alpha=.72,width=3,offset=0)=>{context.globalAlpha=alpha;context.strokeStyle=color;context.lineWidth=width*p;context.beginPath();context.ellipse(0,42*p,rx*p,ry*p,offset,0,Math.PI*2);context.stroke();};
+        const spark=(sx,sy,size,color,alpha=.85)=>{context.globalAlpha=alpha;context.fillStyle=color;context.fillRect((sx-size*.16)*p,(sy-size)*p,size*.32*p,size*2*p);context.fillRect((sx-size)*p,(sy-size*.16)*p,size*2*p,size*.32*p);};
+        context.save();context.translate(x,y);context.lineCap='round';context.lineJoin='round';context.globalCompositeOperation='lighter';
+        if(id==='wave'){
+            context.shadowColor='#73eaff';context.shadowBlur=8*p;context.strokeStyle='#8af4ff';context.lineWidth=3*p;
+            for(let arc=0;arc<4;arc+=1){context.globalAlpha=.68-arc*.12;context.beginPath();context.arc(34*p,-28*p,(17+arc*10)*p,-.82,.82);context.stroke();}
+            for(let drop=0;drop<5;drop+=1)spark(22+drop*10,-52+Math.sin(phase*.45+drop)*8,3+(drop%2),drop%2?'#fff5a0':'#5cefff',.52);
+        }else if(id==='banana-shuffle'){
+            context.shadowColor='#ffe056';context.shadowBlur=9*p;ring(62+pulse*8,16+pulse*2,'#ffd83d',.7,4);ring(42-pulse*5,10,'#fff3a3',.5,2);
+            for(let banana=0;banana<7;banana+=1){const angle=phase*.17+banana*.898,radius=(48+(banana%3)*12)*p,bx=Math.cos(angle)*radius,by=Math.sin(angle)*radius*.56-6*p;context.save();context.translate(bx,by);context.rotate(angle+1.2);context.strokeStyle=banana%2?'#fff06a':'#ffc62d';context.lineWidth=5*p;context.globalAlpha=.78;context.beginPath();context.arc(0,0,9*p,-1.1,1.1);context.stroke();context.restore();}
+        }else if(id==='monkey-groove'){
+            const colors=['#4effcf','#4bb8ff','#d66bff','#ffea62'];ring(52+pulse*16,15+pulse*4,colors[Math.floor(time*4)%4],.68,4);ring(30+pulse*9,8,colors[(Math.floor(time*4)+2)%4],.46,2);
+            for(let note=0;note<8;note+=1){const angle=phase*.09+note*Math.PI/4,radius=(48+(note%2)*18)*p,nx=Math.cos(angle)*radius,ny=Math.sin(angle)*radius*.75-18*p,colour=colors[note%4];context.globalAlpha=.8;context.strokeStyle=colour;context.fillStyle=colour;context.lineWidth=2.5*p;context.beginPath();context.arc(nx,ny,4*p,0,Math.PI*2);context.fill();context.beginPath();context.moveTo(nx+4*p,ny);context.lineTo(nx+4*p,ny-16*p);context.stroke();}
+        }else if(id==='crown-bounce'){
+            const cy=(-77-Math.abs(Math.sin(phase*.34))*24)*p;context.shadowColor='#a653ff';context.shadowBlur=18*p;context.globalAlpha=.42;context.fillStyle='#7b28d8';context.beginPath();context.ellipse(0,-24*p,(42+pulse*9)*p,(76+pulse*7)*p,0,0,Math.PI*2);context.fill();context.globalAlpha=.98;context.shadowColor='#ffd83e';context.fillStyle='#ffd94b';context.strokeStyle='#fff2a1';context.lineWidth=2.5*p;context.beginPath();context.moveTo(-27*p,cy+19*p);context.lineTo(-31*p,cy-7*p);context.lineTo(-13*p,cy+6*p);context.lineTo(0,cy-16*p);context.lineTo(13*p,cy+6*p);context.lineTo(31*p,cy-7*p);context.lineTo(27*p,cy+19*p);context.closePath();context.fill();context.stroke();ring(62+pulse*15,17,'#b85cff',.72,5);ring(42+pulse*8,10,'#ffe979',.7,3);for(let i=0;i<8;i+=1)spark(Math.cos(phase*.08+i)*70,Math.sin(phase*.08+i)*43-12,4,i%2?'#fff4a7':'#d584ff',.78);
+        }else if(id==='pirate-jig'){
+            context.shadowColor='#42d9e8';context.shadowBlur=9*p;ring(70,20,'#39c9d8',.48,4,phase*.02);context.globalAlpha=.62;context.strokeStyle='#f0c55b';context.lineWidth=2.5*p;for(let spoke=0;spoke<8;spoke+=1){const a=-phase*.055+spoke*Math.PI/4;context.beginPath();context.moveTo(0,42*p);context.lineTo(Math.cos(a)*66*p,42*p+Math.sin(a)*18*p);context.stroke();}
+            context.globalAlpha=.82;context.strokeStyle='#fff0ac';context.lineWidth=4*p;context.beginPath();context.arc(0,-44*p,18*p,.15,Math.PI-.15);context.stroke();context.beginPath();context.moveTo(-14*p,-38*p);context.lineTo(14*p,-22*p);context.moveTo(14*p,-38*p);context.lineTo(-14*p,-22*p);context.stroke();
+            for(let coin=0;coin<9;coin+=1){const a=phase*.21+coin*Math.PI/4.5,r=(54+(coin%3)*9)*p;context.fillStyle=coin%2?'#ffe783':'#d99b28';context.globalAlpha=.9;context.beginPath();context.ellipse(Math.cos(a)*r,Math.sin(a)*r*.42-4*p,(2+Math.abs(Math.sin(phase+coin))*4)*p,5*p,a,0,Math.PI*2);context.fill();}
+        }else if(id==='snow-spin'){
+            context.shadowColor='#b9efff';context.shadowBlur=8*p;ring(60+pulse*7,17,'#bcefff',.62,3,phase*.06);ring(37,10,'#68cfff',.45,2,-phase*.04);
+            for(let flake=0;flake<12;flake+=1){const a=phase*.19+flake*Math.PI/6,r=(39+(flake%4)*12)*p,fx=Math.cos(a)*r,fy=Math.sin(a)*r-6*p,size=(3+flake%3)*p;context.strokeStyle=flake%2?'#efffff':'#83dcff';context.globalAlpha=.8;context.lineWidth=1.5*p;for(let arm=0;arm<3;arm+=1){context.beginPath();context.moveTo(fx-Math.cos(arm*Math.PI/3)*size,fy-Math.sin(arm*Math.PI/3)*size);context.lineTo(fx+Math.cos(arm*Math.PI/3)*size,fy+Math.sin(arm*Math.PI/3)*size);context.stroke();}}
+        }else if(id==='robot-glitch'){
+            const flicker=Math.floor(time*12)%2,primary=flicker?'#3efff2':'#ff48d8',secondary=flicker?'#ff48d8':'#4c8cff';context.shadowColor=primary;context.shadowBlur=9*p;
+            for(let line=-3;line<=3;line+=1){const jitter=((Math.floor(time*18+line*7)%5)-2)*7*p;context.globalAlpha=.28+(line%2?0:.2);context.fillStyle=line%2?primary:secondary;context.fillRect((-58*p)+jitter,(line*15-4)*p,(116-Math.abs(jitter/p))*p,(2+(line+5)%3)*p);}
+            for(let pixel=0;pixel<11;pixel+=1){const px=(((pixel*37+Math.floor(time*14)*19)%111)-55)*p,py=(((pixel*23+Math.floor(time*9)*11)%103)-62)*p;context.fillStyle=pixel%2?primary:secondary;context.globalAlpha=.66;context.fillRect(px,py,(3+pixel%3)*p,(3+(pixel+1)%4)*p);}
+            ring(54+pulse*9,14,primary,.55,3);
+        }else if(id==='inferno-stomp'){
+            const stompCycle=(Math.sin(time*5.2)+1)/2,impact=Math.pow(1-stompCycle,3.2);
+            context.shadowColor='#ff3b08';context.shadowBlur=23*p;
+            ring(72+pulse*21+impact*30,21+pulse*5,'#ff3210',.88,8);
+            ring(48+pulse*13+impact*18,12,'#ff9d22',.86,5);
+            ring(28+impact*12,7,'#fff19a',.9,3);
+            /* Molten ground cracks make the stomp read as an impact instead of a
+               passive fire halo. They flare only on the beat, keeping the idle
+               frame cheap and the effect visually tied to the monkey's footfall. */
+            for(let crack=0;crack<9;crack+=1){const a=crack*Math.PI/9+phase*.008,len=(32+crack%3*11+impact*23)*p;context.strokeStyle=crack%2?'#ff7b1a':'#ffe36d';context.lineWidth=(2+impact*2)*p;context.globalAlpha=.3+impact*.6;context.beginPath();context.moveTo(Math.cos(a)*18*p,42*p+Math.sin(a)*5*p);context.lineTo(Math.cos(a)*len*.58,42*p+Math.sin(a)*len*.18);context.lineTo(Math.cos(a+.1)*len,42*p+Math.sin(a+.1)*len*.24);context.stroke();}
+            /* Two banks of flames create the tall inferno shown by the item icon:
+               broad red/orange tongues behind, narrow white-hot tongues in front. */
+            for(let layer=0;layer<2;layer+=1){const count=layer?11:15,spread=layer?51:72;for(let flame=0;flame<count;flame+=1){const ratio=count===1?0:flame/(count-1),fx=(-spread+ratio*spread*2)*p,seed=flame*1.73+layer*5.1,rise=(layer?31:45)+(Math.sin(time*(4.2+layer*.7)+seed)+1)*10+(flame%4)*5+impact*18,sway=Math.sin(time*5.4+seed)*7*p,width=(layer?5.2:8.5)*(1+(flame%3)*.11)*p;context.globalAlpha=layer?.82:.7;context.fillStyle=layer?(flame%3===0?'#fff5a4':'#ffbd2f'):(flame%3===0?'#ff3308':flame%2?'#ff5a0b':'#ff8a12');context.beginPath();context.moveTo(fx-width,42*p);context.bezierCurveTo(fx-width*1.3,18*p,fx+sway-width*.35,-rise*.53*p,fx+sway,-rise*p);context.bezierCurveTo(fx+sway+width*.45,-rise*.5*p,fx+width*1.2,19*p,fx+width,42*p);context.closePath();context.fill();}}
+            for(let ember=0;ember<24;ember+=1){const ex=(((ember*41)%151)-75)*p,travel=(time*(42+ember%6*7)+ember*19)%132,ey=(42-travel)*p,size=(1.6+ember%4)*p;context.fillStyle=ember%5?'#ff6c1a':'#fff4a1';context.globalAlpha=.3+(ember%5)*.13;context.beginPath();context.arc(ex+Math.sin(time*3.3+ember)*7*p,ey,size,0,Math.PI*2);context.fill();}
+        }else if(id==='galaxy-float'){
+            context.shadowColor='#9f70ff';context.shadowBlur=10*p;context.globalAlpha=.7;context.strokeStyle='#aa7dff';context.lineWidth=3*p;
+            for(let orbit=0;orbit<3;orbit+=1){context.beginPath();context.ellipse(0,8*p,(48+orbit*10)*p,(13+orbit*4)*p,phase*.09+orbit*.9,0,Math.PI*2);context.stroke();}
+            for(let star=0;star<12;star+=1){const a=phase*.14+star*Math.PI/6,r=(48+(star%4)*9)*p;spark(Math.cos(a)*r/p,Math.sin(a)*r*.58/p-8,2.5+star%3,star%2?'#65eaff':'#ffe989',.82);}
+            context.globalAlpha=.38;context.fillStyle='#b367ff';context.beginPath();context.arc(0,-4*p,(26+pulse*7)*p,0,Math.PI*2);context.fill();
+        }else if(id==='disco-peel'){
+            const colors=['#ff4fc8','#45efff','#ffe853','#77ff84'];const ballY=-72*p;context.shadowColor=colors[Math.floor(time*5)%4];context.shadowBlur=13*p;context.globalAlpha=.9;context.fillStyle='#e7f8ff';context.beginPath();context.arc(0,ballY,15*p,0,Math.PI*2);context.fill();context.strokeStyle='#6f8fff';context.lineWidth=1*p;for(let line=-1;line<=1;line+=1){context.beginPath();context.moveTo(-14*p,line*7*p+ballY);context.lineTo(14*p,line*7*p+ballY);context.stroke();}
+            for(let ray=0;ray<8;ray+=1){const a=phase*.12+ray*Math.PI/4;context.strokeStyle=colors[ray%4];context.globalAlpha=.52;context.lineWidth=(3+ray%2)*p;context.beginPath();context.moveTo(0,ballY);context.lineTo(Math.cos(a)*82*p,Math.sin(a)*46*p+8*p);context.stroke();}ring(55+pulse*14,16,colors[(Math.floor(time*5)+2)%4],.62,4);
+        }else if(id==='victory-flex'){
+            const victoryPulse=(Math.sin(time*2.2)+1)/2,breath=(Math.sin(time*1.65)+1)/2;
+            context.shadowColor='#ffc629';context.shadowBlur=20*p;
+            for(let ray=0;ray<20;ray+=1){const a=ray*Math.PI/10+Math.sin(phase*.025)*.025,len=(58+(ray%2)*31+victoryPulse*15)*p;context.strokeStyle=ray%2?'#fff7c5':'#ffb515';context.globalAlpha=.38+(ray%4)*.1;context.lineWidth=(2+ray%3)*p;context.beginPath();context.moveTo(Math.cos(a)*30*p,Math.sin(a)*30*p-5*p);context.lineTo(Math.cos(a)*len,Math.sin(a)*len-5*p);context.stroke();}
+            /* A pair of oversized golden flex-arm silhouettes directly mirrors the
+               emote icon and keeps Victory Flex visually separate from the crown
+               bounce and pirate jig effects. */
+            const drawFlexArm=(side)=>{context.save();context.scale(side,1);context.globalAlpha=.88;context.strokeStyle='#ffcf3f';context.lineWidth=13*p;context.beginPath();context.moveTo(25*p,1*p);context.quadraticCurveTo(52*p,-4*p,57*p,-31*p);context.quadraticCurveTo(61*p,-55*p,77*p,-58*p);context.stroke();context.fillStyle='#ffe47b';context.beginPath();context.arc(78*p,-61*p,(11+breath*2)*p,0,Math.PI*2);context.fill();context.strokeStyle='#fff4af';context.lineWidth=2*p;context.stroke();context.restore();};
+            drawFlexArm(-1);drawFlexArm(1);
+            /* Laurel leaves and a bright medal/star form the champion frame. */
+            for(let side of [-1,1]){for(let leaf=0;leaf<7;leaf+=1){const a=(-1.13+leaf*.18)*side,lx=Math.cos(a)*(63+leaf*2)*p,ly=Math.sin(a)*(54+leaf*2)*p+20*p;context.save();context.translate(lx,ly);context.rotate(a+side*Math.PI/2);context.globalAlpha=.75+leaf*.025;context.fillStyle=leaf%2?'#ffe879':'#f4bb25';context.beginPath();context.ellipse(0,0,4.5*p,10*p,0,0,Math.PI*2);context.fill();context.restore();}}
+            context.globalAlpha=.98;context.fillStyle='#ffd53e';context.strokeStyle='#fff3a4';context.lineWidth=2.4*p;context.beginPath();for(let point=0;point<10;point+=1){const a=-Math.PI/2+point*Math.PI/5,r=(point%2?7:16)*p,px=Math.cos(a)*r,py=-92*p+Math.sin(a)*r;if(point===0)context.moveTo(px,py);else context.lineTo(px,py);}context.closePath();context.fill();context.stroke();
+            context.globalAlpha=.98;context.font=`900 ${14*p}px Arial`;context.textAlign='center';context.textBaseline='middle';context.fillStyle='#fff8cf';context.shadowColor='#ff9d00';context.shadowBlur=11*p;context.fillText('VICTORY!',0,-120*p);
+            ring(79+victoryPulse*14,22,'#ffd950',.88,7);ring(52+victoryPulse*8,13,'#fff3a0',.62,3);spark(-72,-39,9,'#fff4a0',1);spark(72,-39,9,'#fff4a0',1);spark(0,-143,10,'#ffe15b',1);
+        }
+        context.restore();
+    }
+
     function drawWorldPlayer(context, player, now) {
         const moving = Boolean(player.moving || (player.profileId === state.account?.id && monkeyWorld.moving));
         const step = moving ? Math.sin(now * .014 + Number(player.x || 0) * .01) : Math.sin(now * .0025 + Number(player.y || 0) * .01) * .2;
-        const bob = moving ? Math.abs(step) * -7 : step * 3;
-        const lean = moving ? step * .045 : 0;
+        const serverNow=Date.now()+state.serverOffset,emoteActive=Number(player.emoteUntil)>serverNow,emoteId=emoteActive?String(player.emoteId||''):'',emoteTime=(serverNow-Number(player.emoteStartedAt||serverNow))/1000;
+        let bob = moving ? Math.abs(step) * -7 : step * 3;
+        let lean = moving ? step * .045 : 0;
+        let emoteShiftX=0,emoteScaleX=1,emoteScaleY=1;
+        if(emoteId==='wave'){lean=Math.sin(emoteTime*5)*.15;emoteShiftX=Math.sin(emoteTime*2.5)*4;emoteScaleX=1+Math.sin(emoteTime*5)*.025;}
+        else if(emoteId==='banana-shuffle'){const beat=Math.sin(emoteTime*8);emoteShiftX=beat*22;bob=-Math.abs(Math.cos(emoteTime*8))*7;lean=beat*.14;emoteScaleX=1-Math.abs(beat)*.04;emoteScaleY=1+Math.abs(beat)*.1;}
+        else if(emoteId==='monkey-groove'){const beat=Math.sin(emoteTime*5.5);bob=-Math.abs(beat)*15;lean=Math.sin(emoteTime*2.75)*.22;emoteShiftX=Math.sin(emoteTime*2.75)*8;emoteScaleX=1+Math.abs(beat)*.1;emoteScaleY=1-Math.abs(beat)*.06;}
+        else if(emoteId==='crown-bounce'){const jump=Math.pow(Math.abs(Math.sin(emoteTime*2.75)),1.35);bob=-jump*42;emoteScaleX=1+(1-jump)*.13;emoteScaleY=.88+jump*.22;lean=Math.sin(emoteTime*1.35)*.035;}
+        else if(emoteId==='pirate-jig'){const step=Math.sin(emoteTime*7.4),heel=Math.sin(emoteTime*14.8);emoteShiftX=step*28;bob=-Math.max(0,heel)*6;lean=Math.sign(step)*.23;emoteScaleX=.96+Math.abs(heel)*.06;emoteScaleY=1.04-Math.abs(heel)*.05;}
+        else if(emoteId==='snow-spin'){lean=Math.sin(emoteTime*3.4)*.28;emoteShiftX=Math.sin(emoteTime*3.4)*10;bob=-8-Math.abs(Math.sin(emoteTime*3.4))*7;emoteScaleX=.94+Math.abs(Math.cos(emoteTime*3.4))*.08;}
+        else if(emoteId==='robot-glitch'){const tick=Math.floor(emoteTime*12);emoteShiftX=((tick%5)-2)*5;bob=-((tick%3)-1)*4;lean=((tick%4)-1.5)*.055;emoteScaleX=tick%2?1.09:.91;emoteScaleY=tick%3?1.03:.9;}
+        else if(emoteId==='inferno-stomp'){const stomp=Math.max(0,Math.sin(emoteTime*5.2));bob=-stomp*17;emoteScaleX=1+(1-stomp)*.13;emoteScaleY=.87+stomp*.19;lean=Math.sin(emoteTime*2.6)*.055;}
+        else if(emoteId==='galaxy-float'){bob=-22-Math.sin(emoteTime*2.1)*11;lean=Math.sin(emoteTime*1.35)*.11;emoteShiftX=Math.sin(emoteTime*.9)*7;emoteScaleX=1.03;emoteScaleY=1.03;}
+        else if(emoteId==='disco-peel'){const beat=Math.sin(emoteTime*6.2);emoteShiftX=beat*16;bob=-Math.abs(Math.cos(emoteTime*6.2))*13;lean=beat*.2;emoteScaleX=1+Math.abs(beat)*.09;emoteScaleY=1-Math.abs(beat)*.05;}
+        else if(emoteId==='victory-flex'){
+            /* A four-second champion sequence: charge, leap, impact, then hold
+               the flex while alternating shoulder pumps. This gives the skin a
+               readable performance instead of merely breathing in and out. */
+            const cycle=((emoteTime%4)+4)%4,direction=Math.floor(emoteTime/4)%2?-1:1;
+            if(cycle<.58){
+                const charge=cycle/.58,ease=charge*charge*(3-2*charge);
+                bob=7*ease;lean=-direction*.07*ease;emoteShiftX=-direction*4*ease;emoteScaleX=1+.14*ease;emoteScaleY=1-.18*ease;
+            }else if(cycle<1.28){
+                const launch=(cycle-.58)/.7,jump=Math.sin(launch*Math.PI),turn=Math.sin(launch*Math.PI*2);
+                bob=-44*jump;lean=direction*turn*.15;emoteShiftX=direction*Math.sin(launch*Math.PI)*9;emoteScaleX=1.12-jump*.08;emoteScaleY=.92+jump*.2;
+            }else if(cycle<1.62){
+                const land=(cycle-1.28)/.34,impact=Math.sin(land*Math.PI);
+                bob=5*impact;lean=direction*.06*(1-land);emoteShiftX=direction*4*(1-land);emoteScaleX=1.18+impact*.15;emoteScaleY=.9-impact*.11;
+            }else{
+                const hold=(cycle-1.62)/2.38,pump=Math.sin(hold*Math.PI*6),accent=Math.pow(Math.abs(pump),1.7);
+                bob=-4-Math.abs(Math.sin(hold*Math.PI*3))*3;lean=direction*pump*.055;emoteShiftX=direction*Math.sin(hold*Math.PI*3)*5;emoteScaleX=1.22+accent*.13;emoteScaleY=.92-accent*.035;
+            }
+        }
         const perspective = .78 + Math.max(0, Math.min(1, Number(player.y || 0) / MONKEY_WORLD_HEIGHT)) * .30;
         const spriteWidth = 104 * perspective;
         const spriteHeight = 104 * perspective;
@@ -1800,12 +2393,15 @@
         context.restore();
 
         const image = worldImage(player.skin);
+        drawWorldEmoteVisuals(context,player,emoteId,emoteTime,perspective);
+        window.FlappyAuras?.draw?.(context, player.x+emoteShiftX - spriteWidth / 2, player.y - 48 + bob - spriteHeight / 2, spriteWidth, now / 16.67, player.aura, 1);
         context.save();
-        context.translate(player.x, player.y - 48 + bob);
+        context.translate(player.x+emoteShiftX, player.y - 48 + bob);
         context.rotate(lean);
         const facingLeft = player.direction === 'left';
         if (facingLeft) context.scale(-1, 1);
         if (moving) context.scale(1 - Math.abs(step) * .035, 1 + Math.abs(step) * .055);
+        context.scale(emoteScaleX,emoteScaleY);
         context.imageSmoothingEnabled = false;
         if (image.complete && image.naturalWidth) context.drawImage(image, -spriteWidth / 2, -spriteHeight / 2, spriteWidth, spriteHeight);
         else {
@@ -1827,11 +2423,52 @@
         const equippedTitle = player.equippedTitle && player.equippedTitle !== 'None' ? String(player.equippedTitle).slice(0, 35) : '';
         const nameTop = player.y - (equippedTitle ? 154 : 128) + bob;
         const nameCenter = nameTop + 16;
-        context.fillStyle = 'rgba(3,24,23,.9)';
-        context.strokeStyle = player.profileId === state.account?.id ? '#ffe36c' : 'rgba(183,238,211,.75)';
+        const playerBannerId = String(player.banner || 'skin-default');
+        /* The default option must preserve the original Monkey World nameplate.
+           Only a genuinely equipped cosmetic supplies banner artwork. */
+        const playerBanner = playerBannerId === 'skin-default' ? null : window.FlappyBanners?.byId?.(playerBannerId);
+        const nameGradient = context.createLinearGradient(player.x - labelWidth / 2, nameTop, player.x + labelWidth / 2, nameTop + 31);
+        nameGradient.addColorStop(0, playerBanner?.b1 || '#031817');
+        nameGradient.addColorStop(.58, playerBanner?.b2 || '#123d31');
+        nameGradient.addColorStop(1, playerBanner?.b1 || '#031817');
+        context.fillStyle = nameGradient;
+        context.strokeStyle = player.profileId === state.account?.id ? '#ffe36c' : (playerBanner?.accent || 'rgba(183,238,211,.75)');
         context.lineWidth = 3;
-        context.beginPath(); context.roundRect(player.x - labelWidth / 2, nameTop, labelWidth, 31, 14); context.fill(); context.stroke();
-        context.fillStyle = '#fffbe7'; context.fillText(label, labelTextX, nameCenter, labelWidth - 24 - rankIconSpace - platformIconSpace);
+        context.beginPath(); context.roundRect(player.x - labelWidth / 2, nameTop, labelWidth, 31, 14); context.fill(); context.save(); context.clip();
+        if (playerBanner) {
+            const bannerImage = worldImage(playerBanner.menuBg || playerBanner.icon);
+            if (bannerImage.complete && bannerImage.naturalWidth) {
+                const destinationWidth=labelWidth,destinationHeight=31,sourceRatio=bannerImage.naturalWidth/bannerImage.naturalHeight,destinationRatio=destinationWidth/destinationHeight;
+                let sourceX=0,sourceY=0,sourceWidth=bannerImage.naturalWidth,sourceHeight=bannerImage.naturalHeight;
+                if(sourceRatio>destinationRatio){sourceWidth=bannerImage.naturalHeight*destinationRatio;sourceX=(bannerImage.naturalWidth-sourceWidth)/2;}
+                else{sourceHeight=bannerImage.naturalWidth/destinationRatio;sourceY=(bannerImage.naturalHeight-sourceHeight)/2;}
+                context.globalAlpha=.9;
+                context.drawImage(bannerImage,sourceX,sourceY,sourceWidth,sourceHeight,player.x-labelWidth/2,nameTop,destinationWidth,destinationHeight);
+                const readability=context.createLinearGradient(player.x-labelWidth/2,nameTop,player.x+labelWidth/2,nameTop);
+                readability.addColorStop(0,'rgba(0,0,0,.44)');readability.addColorStop(.5,'rgba(0,0,0,.2)');readability.addColorStop(1,'rgba(0,0,0,.42)');
+                context.globalAlpha=1;context.fillStyle=readability;context.fillRect(player.x-labelWidth/2,nameTop,labelWidth,31);
+            }
+        }
+        context.restore();
+        // Canvas paths are not part of save()/restore(). The animated banner
+        // loop leaves its final diagonal stripe as the active path, so calling
+        // stroke() here used to redraw that stripe outside the nameplate clip
+        // and leave a random slash across Monkey World. Rebuild the rounded
+        // border path explicitly before stroking it.
+        context.beginPath();
+        context.roundRect(player.x - labelWidth / 2, nameTop, labelWidth, 31, 14);
+        context.stroke();
+        const nameStyle = normalizedNameStyle(player.nameStyle);
+        const nameHue = effectHue(nameStyle, now);
+        const nameSolidColor = nameStyle.rgb || nameStyle.gradient ? `hsl(${nameHue},100%,82%)` : nameStyle.color;
+        const nameColor = nameStyle.gradient
+            ? canvasRainbowGradient(context, labelTextX - labelWidth / 2, labelTextX + labelWidth / 2, nameHue)
+            : nameSolidColor;
+        context.fillStyle = nameColor;
+        context.shadowColor = nameSolidColor;
+        context.shadowBlur = nameStyle.glow ? 7 : 0;
+        context.fillText(label, labelTextX, nameCenter, labelWidth - 24 - rankIconSpace - platformIconSpace);
+        context.shadowBlur = 0;
         if (hasRankIcon) {
             const rankImage = worldImage(rankIconSource(player.ranked));
             if (rankImage.complete && rankImage.naturalWidth) context.drawImage(rankImage, player.x - labelWidth / 2 + 8, nameTop + 3, 25, 25);
@@ -1847,8 +2484,9 @@
             const titleTop = player.y - 118 + bob;
             const titleY = titleTop + 10;
             context.beginPath(); context.roundRect(player.x - titleWidth / 2, titleTop, titleWidth, 20, 9); context.fill(); context.stroke();
-            const hue = (now / (style.rgbSpeed * 1000) * 360) % 360;
-            let titleColor = style.rgb ? `hsl(${hue},100%,82%)` : style.color;
+            const hue = effectHue(style, now);
+            const titleSolidColor = style.rgb || style.gradient ? `hsl(${hue},100%,82%)` : style.color;
+            let titleColor = style.color;
             if (style.fx === 'fire') titleColor = '#fff0a8';
             else if (style.fx === 'sparkle') titleColor = '#fff8c9';
             else if (style.fx === 'glitch') {
@@ -1862,7 +2500,9 @@
             } else if (style.fx === 'neonpulse') {
                 titleColor = `hsl(${hue},100%,86%)`;
             }
-            context.shadowColor = titleColor;
+            if (style.rgb) titleColor = titleSolidColor;
+            else if (style.gradient) titleColor = canvasRainbowGradient(context, player.x - titleWidth / 2, player.x + titleWidth / 2, hue);
+            context.shadowColor = titleSolidColor;
             context.shadowBlur = style.glow || style.fx !== 'none' ? 6 : 0;
             context.fillStyle = titleColor;
             context.fillText(equippedTitle, player.x, titleY, titleWidth - 12);
@@ -1942,64 +2582,100 @@
     }
 
     function drawMonkeyWorld(now = performance.now()) {
-        const { context, viewWidth, viewHeight } = monkeyWorldViewport();
-        const maximumCameraX = Math.max(0, MONKEY_WORLD_WIDTH - viewWidth);
-        const maximumCameraY = Math.max(0, MONKEY_WORLD_HEIGHT - viewHeight);
-        monkeyWorld.cameraX = Math.max(0, Math.min(maximumCameraX, monkeyWorld.cameraX));
-        monkeyWorld.cameraY = Math.max(0, Math.min(maximumCameraY, monkeyWorld.cameraY));
-        if (monkeyWorldRenderer) monkeyWorldRenderer.render(context, {
-            cameraX: monkeyWorld.cameraX,
-            cameraY: monkeyWorld.cameraY,
-            viewWidth,
-            viewHeight,
-            now,
-            buildings: MONKEY_WORLD_BUILDINGS
-        });
-        else { context.fillStyle = '#26a8bd'; context.fillRect(0, 0, viewWidth, viewHeight); }
-
-        context.save();
-        context.translate(-monkeyWorld.cameraX, -monkeyWorld.cameraY);
-        for (const building of MONKEY_WORLD_BUILDINGS) {
-            const near = building.id === monkeyWorld.nearbyBuilding?.id;
-            const pulse = .5 + Math.sin(now * .006) * .5;
-            context.textAlign = 'center';
-            context.fillStyle = near ? `rgba(255,227,91,${.18 + pulse * .18})` : 'rgba(255,255,255,.07)';
-            context.beginPath(); context.arc(building.doorX, building.doorY + 8, near ? 66 + pulse * 8 : 43, 0, Math.PI * 2); context.fill();
-            if (near) {
-                context.fillStyle = '#fff4a1'; context.strokeStyle = '#173d30'; context.lineWidth = 6; context.font = '900 17px Arial';
-                const enterPrompt = LOCAL_MOBILE_DEVICE || matchMedia('(pointer: coarse)').matches
-                    ? `TAP TO ENTER ${building.name.toUpperCase()}`
-                    : `E · ENTER ${building.name.toUpperCase()}`;
-                context.strokeText(enterPrompt, building.doorX, building.doorY + 84);
-                context.fillText(enterPrompt, building.doorX, building.doorY + 84);
-            }
-        }
+        const renderStats=window.__flappyRenderStats||(window.__flappyRenderStats={worldFrames:0,lastWorldFrameAt:0});
+        renderStats.worldFrames+=1;renderStats.lastWorldFrameAt=now;
         const players = [...monkeyWorld.players.values()].filter((player) => player.profileId !== state.account?.id);
-        players.push({ ...(monkeyWorld.players.get([...monkeyWorld.players.keys()].find((id) => monkeyWorld.players.get(id)?.profileId === state.account?.id)) || {}), profileId: state.account?.id, username: state.account?.username || 'You', platform:state.account?.platform || (LOCAL_MOBILE_DEVICE ? 'mobile' : 'pc'), skin: currentSkin(), equippedTitle: currentTitle(), titleStyle: currentTitleStyle(), level: state.account?.level || 1, clan: state.account?.clan, ranked: state.account?.ranked, x: monkeyWorld.x, y: monkeyWorld.y, direction: monkeyWorld.direction, moving: monkeyWorld.moving });
+        players.push({ ...(monkeyWorld.players.get([...monkeyWorld.players.keys()].find((id) => monkeyWorld.players.get(id)?.profileId === state.account?.id)) || {}), profileId: state.account?.id, username: state.account?.username || 'You', platform:state.account?.platform || (LOCAL_MOBILE_DEVICE ? 'mobile' : 'pc'), skin: currentSkin(), aura:currentAura(), banner:currentBanner(), equippedTitle: currentTitle(), titleStyle: currentTitleStyle(), nameStyle: currentNameStyle(), level: state.account?.level || 1, clan: state.account?.clan, ranked: state.account?.ranked, x: monkeyWorld.x, y: monkeyWorld.y, direction: monkeyWorld.direction, moving: monkeyWorld.moving, emoteId:monkeyWorld.localEmote?.id||'', emoteStartedAt:monkeyWorld.localEmote?.startedAt||0, emoteUntil:monkeyWorld.localEmote?.until||0 });
         players.sort((first, second) => first.y - second.y);
-        for (const player of players) drawWorldPlayer(context, player, now);
-        context.restore();
-        monkeyWorldRenderer?.drawForeground?.(context, {
-            cameraX: monkeyWorld.cameraX,
-            cameraY: monkeyWorld.cameraY,
-            players,
-            buildings: MONKEY_WORLD_BUILDINGS
-        });
-
         const phase = monkeyWorldPhase();
-        elements.mwTimeOfDay.textContent = phase.name;
-        context.fillStyle = phase.color; context.fillRect(0, 0, viewWidth, viewHeight);
-        elements.mwLocation.textContent = worldLocationName(monkeyWorld.x, monkeyWorld.y);
+        const worldEvent = window.FlappyWorldEvents?.current?.() || null;
+        const interior = monkeyWorld.currentInterior ? {
+            id: monkeyWorld.currentInterior,
+            x: monkeyWorld.interiorX,
+            y: monkeyWorld.interiorY,
+            skin: currentSkin(),
+            direction: monkeyWorld.direction,
+            moving: monkeyWorld.moving,
+            nearbyStation: monkeyWorld.nearbyInteriorStation
+        } : null;
+        const rendered3D = Boolean(monkeyWorld3D?.render?.({
+            now,
+            players,
+            event:worldEvent,
+            phase,
+            localX:monkeyWorld.x,
+            localY:monkeyWorld.y,
+            localProfileId:state.account?.id || '',
+            interior
+        }));
+        if (monkeyWorld.rendered3D !== rendered3D) {
+            monkeyWorld.rendered3D = rendered3D;
+            elements.mwGame.classList.toggle('mw-three-active', rendered3D);
+        }
+        if (!rendered3D) {
+            // Do not touch the hidden fallback canvas while WebGL is active.
+            // getBoundingClientRect/getContext/setTransform forced a full-screen
+            // layout and canvas-state check on every 3D frame, even though none
+            // of that work was visible.
+            const { context, viewWidth, viewHeight } = monkeyWorldViewport();
+            const maximumCameraX = Math.max(0, MONKEY_WORLD_WIDTH - viewWidth);
+            const maximumCameraY = Math.max(0, MONKEY_WORLD_HEIGHT - viewHeight);
+            monkeyWorld.cameraX = Math.max(0, Math.min(maximumCameraX, monkeyWorld.cameraX));
+            monkeyWorld.cameraY = Math.max(0, Math.min(maximumCameraY, monkeyWorld.cameraY));
+            context.clearRect(0,0,viewWidth,viewHeight);
+            monkeyWorld.fallbackWasPainted = true;
+            if (monkeyWorldRenderer) monkeyWorldRenderer.render(context, {
+                cameraX: monkeyWorld.cameraX,
+                cameraY: monkeyWorld.cameraY,
+                viewWidth,
+                viewHeight,
+                now,
+                buildings: MONKEY_WORLD_BUILDINGS
+            });
+            else { context.fillStyle = '#26a8bd'; context.fillRect(0, 0, viewWidth, viewHeight); }
+            context.save();
+            context.translate(-monkeyWorld.cameraX, -monkeyWorld.cameraY);
+            window.FlappyWorldEvents?.drawWorld?.(context, 'back', { now, players:[] });
+            const eventActive = Boolean(worldEvent);
+            for (const building of MONKEY_WORLD_BUILDINGS) {
+                const near = building.id === monkeyWorld.nearbyBuilding?.id;
+                const pulse = .5 + Math.sin(now * .006) * .5;
+                context.textAlign = 'center';
+                context.fillStyle = near ? `rgba(255,227,91,${.18 + pulse * .18})` : 'rgba(255,255,255,.07)';
+                context.beginPath(); context.arc(building.doorX, building.doorY + 8, near ? 66 + pulse * 8 : 43, 0, Math.PI * 2); context.fill();
+                if (near) {
+                    context.fillStyle = '#fff4a1'; context.strokeStyle = '#173d30'; context.lineWidth = 6; context.font = '900 17px Arial';
+                    const entranceText = eventActive ? '🔒 LOCKED DURING EVENT' : `E · ENTER ${building.name.toUpperCase()}`;
+                    context.strokeText(entranceText, building.doorX, building.doorY + 84);
+                    context.fillText(entranceText, building.doorX, building.doorY + 84);
+                }
+            }
+            for (const player of players) drawWorldPlayer(context, player, now);
+            window.FlappyWorldEvents?.drawWorld?.(context, 'front', { now, players });
+            context.restore();
+            monkeyWorldRenderer?.drawForeground?.(context, {
+                cameraX: monkeyWorld.cameraX,
+                cameraY: monkeyWorld.cameraY,
+                players,
+                buildings:MONKEY_WORLD_BUILDINGS
+            });
+            context.fillStyle = phase.color;
+            context.fillRect(0, 0, viewWidth, viewHeight);
+        } else if (monkeyWorld.fallbackWasPainted) {
+            const { context, viewWidth, viewHeight } = monkeyWorldViewport();
+            context.clearRect(0,0,viewWidth,viewHeight);
+            monkeyWorld.fallbackWasPainted = false;
+        }
+        if (elements.mwTimeOfDay.textContent !== phase.name) elements.mwTimeOfDay.textContent = phase.name;
+        const currentBuilding = MONKEY_WORLD_BUILDINGS.find((building) => building.id === monkeyWorld.currentInterior);
+        const locationLabel = currentBuilding
+            ? `${currentBuilding.name} Interior` : worldLocationName(monkeyWorld.x, monkeyWorld.y);
+        if (elements.mwLocation.textContent !== locationLabel) elements.mwLocation.textContent = locationLabel;
     }
 
     function monkeyWorldLoop(now) {
         if (!monkeyWorld.active || !monkeyWorld.joined) { monkeyWorld.animationFrame = null; return; }
-        if (document.hidden || window.flappyAppSuspended) {
-            monkeyWorld.lastTick = now;
-            monkeyWorld.animationFrame = requestAnimationFrame(monkeyWorldLoop);
-            return;
-        }
-        const delta = Math.min(.15, Math.max(0, (now - monkeyWorld.lastTick) / 1000));
+        const delta = Math.min(.05, Math.max(0, (now - monkeyWorld.lastTick) / 1000));
         monkeyWorld.lastTick = now;
         let dx = 0, dy = 0;
         if (monkeyWorld.keys.has('KeyW') || monkeyWorld.keys.has('ArrowUp')) dy -= 1;
@@ -2011,45 +2687,86 @@
         const pad = navigator.getGamepads?.()[0];
         if (pad) { if (Math.abs(pad.axes[0] || 0) > .18) dx += pad.axes[0]; if (Math.abs(pad.axes[1] || 0) > .18) dy += pad.axes[1]; }
         const interactPressed = Boolean(pad?.buttons?.[0]?.pressed);
-        if (interactPressed && !monkeyWorld.gamepadInteractDown) {
-            if (!elements.mwBuildingModal.classList.contains('open') && monkeyWorld.nearbyBuilding) openWorldBuilding(monkeyWorld.nearbyBuilding);
-        }
+        if (interactPressed && !monkeyWorld.gamepadInteractDown) activateWorldInteraction();
         monkeyWorld.gamepadInteractDown = interactPressed;
+        ({ dx, dy } = window.FlappyWorldEvents?.modifyMovement?.(dx, dy, delta) || { dx, dy });
         const length = Math.hypot(dx, dy) || 1;
-        const insideBuilding = elements.mwBuildingModal.classList.contains('open') && Boolean(monkeyWorld.currentInterior);
-        const canWalk = !monkeyWorld.pausedForMenu && !insideBuilding;
+        const insideBuilding = Boolean(monkeyWorld.currentInterior);
+        if(monkeyWorld.localEmote&&Date.now()+state.serverOffset>=monkeyWorld.localEmote.until)monkeyWorld.localEmote=null;
+        const externalWorldMenuOpen = worldExternalMenuVisible();
+        const worldBuildingMenuOpen = Boolean(elements.mwBuildingModal?.classList.contains('open'));
+        const emoteWheelOpen = Boolean(document.getElementById('mwEmoteWheel')?.classList.contains('open'));
+        const blockingWorldMenu = externalWorldMenuOpen || worldBuildingMenuOpen || emoteWheelOpen;
+        if(monkeyWorld.localEmote&&(Math.abs(dx)>.18||Math.abs(dy)>.18))cancelLocalWorldEmote(true);
+        const canWalk = !monkeyWorld.pausedForMenu && !blockingWorldMenu && !monkeyWorld.localEmote;
         monkeyWorld.moving = Boolean((dx || dy) && canWalk);
         if (monkeyWorld.moving) {
             dx /= length; dy /= length;
             monkeyWorld.walkTime += delta;
-            const nextX = Math.max(120, Math.min(MONKEY_WORLD_WIDTH - 120, monkeyWorld.x + dx * 285 * delta));
-            const nextY = Math.max(135, Math.min(MONKEY_WORLD_HEIGHT - 145, monkeyWorld.y + dy * 285 * delta));
-            if (isWorldWalkable(nextX, monkeyWorld.y) && !collidesWorldBuilding(nextX, monkeyWorld.y)) monkeyWorld.x = nextX;
-            if (isWorldWalkable(monkeyWorld.x, nextY) && !collidesWorldBuilding(monkeyWorld.x, nextY)) monkeyWorld.y = nextY;
             monkeyWorld.direction = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
+            if (insideBuilding) {
+                monkeyWorld.interiorX = Math.max(8, Math.min(92, monkeyWorld.interiorX + dx * 42 * delta));
+                monkeyWorld.interiorY = Math.max(18, Math.min(92, monkeyWorld.interiorY + dy * 42 * delta));
+            } else {
+                const nextX = Math.max(120, Math.min(MONKEY_WORLD_WIDTH - 120, monkeyWorld.x + dx * 285 * delta));
+                const nextY = Math.max(135, Math.min(MONKEY_WORLD_HEIGHT - 145, monkeyWorld.y + dy * 285 * delta));
+                if (isWorldWalkable(nextX, monkeyWorld.y) && !collidesWorldBuilding(nextX, monkeyWorld.y)) monkeyWorld.x = nextX;
+                if (isWorldWalkable(monkeyWorld.x, nextY) && !collidesWorldBuilding(monkeyWorld.x, nextY)) monkeyWorld.y = nextY;
+            }
         }
-        const mobileCameraZoom = LOCAL_MOBILE_DEVICE || matchMedia('(pointer: coarse)').matches ? 1.62 : 1;
-        const viewWidth = Math.min(MONKEY_WORLD_WIDTH, (elements.monkeyWorldCanvas.clientWidth || innerWidth) * mobileCameraZoom);
-        const viewHeight = Math.min(MONKEY_WORLD_HEIGHT, (elements.monkeyWorldCanvas.clientHeight || innerHeight) * mobileCameraZoom);
-        const targetCameraX = Math.max(0, Math.min(MONKEY_WORLD_WIDTH - viewWidth, monkeyWorld.x - viewWidth / 2));
-        const targetCameraY = Math.max(0, Math.min(MONKEY_WORLD_HEIGHT - viewHeight, monkeyWorld.y - viewHeight / 2));
-        const cameraEase = Math.min(1, delta * 7.5);
-        monkeyWorld.cameraX += (targetCameraX - monkeyWorld.cameraX) * cameraEase;
-        monkeyWorld.cameraY += (targetCameraY - monkeyWorld.cameraY) * cameraEase;
-        const building = worldBuildingNear(monkeyWorld.x, monkeyWorld.y);
+        if (!insideBuilding && !monkeyWorld3D?.ready) {
+            const viewWidth = Math.max(640, elements.monkeyWorldCanvas.clientWidth || innerWidth);
+            const viewHeight = Math.max(360, elements.monkeyWorldCanvas.clientHeight || innerHeight);
+            const targetCameraX = Math.max(0, Math.min(MONKEY_WORLD_WIDTH - viewWidth, monkeyWorld.x - viewWidth / 2));
+            const targetCameraY = Math.max(0, Math.min(MONKEY_WORLD_HEIGHT - viewHeight, monkeyWorld.y - viewHeight / 2));
+            const cameraEase = Math.min(1, delta * 7.5);
+            monkeyWorld.cameraX += (targetCameraX - monkeyWorld.cameraX) * cameraEase;
+            monkeyWorld.cameraY += (targetCameraY - monkeyWorld.cameraY) * cameraEase;
+        }
+        const building = insideBuilding ? null : worldBuildingNear(monkeyWorld.x, monkeyWorld.y);
         monkeyWorld.nearbyBuilding = building;
-        elements.mwInteract.classList.toggle('mp-hidden', !building);
-        if (building) elements.mwInteract.textContent = `Enter ${building.name}`;
-        if (now - monkeyWorld.lastSentAt > 100) { monkeyWorld.lastSentAt = now; send({ type: 'monkey_world_player_state', x: monkeyWorld.x, y: monkeyWorld.y, direction: monkeyWorld.direction, moving: monkeyWorld.moving }); }
-        if (now - monkeyWorld.lastRosterSyncAt > 2500) {
-            monkeyWorld.lastRosterSyncAt = now;
-            send({ type: 'get_monkey_world_state' });
+        const station = insideBuilding ? updateInteriorProximity() : null;
+        const locked = Boolean(building && window.FlappyWorldEvents?.current?.());
+        const interactionLabel = station
+            ? `E · ${station.label}`
+            : building
+                ? (locked ? '🔒 Buildings Locked During Event' : `E · Enter ${building.name}`)
+                : '';
+        const interactionKey = `${station?.selector || ''}|${building?.id || ''}|${locked ? 1 : 0}|${interactionLabel}`;
+        if (monkeyWorld.interactionUiKey !== interactionKey) {
+            monkeyWorld.interactionUiKey = interactionKey;
+            elements.mwInteract.classList.toggle('mp-hidden', !(building || station));
+            if (interactionLabel && elements.mwInteract.textContent !== interactionLabel) elements.mwInteract.textContent = interactionLabel;
+            elements.mwInteract.disabled = Boolean(locked);
         }
-        const mobileWorld = LOCAL_MOBILE_DEVICE || matchMedia('(pointer: coarse)').matches || innerWidth <= 760;
-        if (!mobileWorld || !monkeyWorld.lastRenderAt || now - monkeyWorld.lastRenderAt >= 30) {
+        if (!insideBuilding) {
+            if (now - monkeyWorld.lastSentAt > 100) { monkeyWorld.lastSentAt = now; send({ type: 'monkey_world_player_state', x: monkeyWorld.x, y: monkeyWorld.y, direction: monkeyWorld.direction, moving: monkeyWorld.moving }); }
+            if (now - monkeyWorld.lastRosterSyncAt > 2500) {
+                monkeyWorld.lastRosterSyncAt = now;
+                send({ type: 'get_monkey_world_state' });
+            }
+        }
+        window.FlappyWorldEvents?.tick?.(now, delta);
+        updateWorldEmoteAudio();
+        // Menus use translucent layers over the world. Rendering the complete
+        // 3D scene underneath a full menu wastes GPU time and used to make the
+        // FPS HUD report 6/30 FPS. Paint one current backdrop frame, then leave
+        // it frozen while the menu itself continues at the browser's full RAF.
+        /* The emote wheel blocks movement, but it is a small in-world selector
+           and must not freeze the scene. It was previously included here, which
+           intentionally reduced rendering to one frame every 160 ms (about
+           6 FPS) whenever B was pressed. Only full external/building overlays
+           need the frozen-background optimization. */
+        const menuVisualThrottle = externalWorldMenuOpen || worldBuildingMenuOpen || monkeyWorld.pausedForMenu;
+        if (monkeyWorld.fullMenuVisual !== menuVisualThrottle) {
+            monkeyWorld.fullMenuVisual = menuVisualThrottle;
+            document.documentElement.classList.toggle('mw-full-menu-open', menuVisualThrottle);
+        }
+        if (!menuVisualThrottle || !monkeyWorld.menuBackdropFrozen) {
+            monkeyWorld.lastVisualAt = now;
             drawMonkeyWorld(now);
-            monkeyWorld.lastRenderAt = now;
         }
+        monkeyWorld.menuBackdropFrozen = menuVisualThrottle;
         monkeyWorld.animationFrame = requestAnimationFrame(monkeyWorldLoop);
     }
 
@@ -2058,7 +2775,7 @@
         if (!friend) return;
         state.giftFriendId = userId;
         const catalog = giftCatalog();
-        elements.mpGiftTitle.textContent = `Send a Gift to ${friend.username}`;
+        elements.mpGiftTitle.innerHTML = `Send a Gift to ${sharedNameHtml(friend, 'Monkey')}`;
         elements.mpGiftItem.innerHTML = catalog.map((item, index) => `<option value="${index}">[${escapeHtml(giftTypeLabel(item.giftType))}] ${escapeHtml(item.label)} — ${Number(item.price).toLocaleString()} Bananas</option>`).join('');
         elements.mpGiftMessage.value = '';
         elements.mpGiftError.textContent = '';
@@ -2071,6 +2788,11 @@
         const item = giftCatalog()[Number(elements.mpGiftItem.value) || 0];
         const balance = Number.parseInt(localStorage.getItem('monkeyCoins') || '0', 10);
         elements.mpGiftCost.textContent = item ? `Cost: ${item.price.toLocaleString()} Bananas · You have ${balance.toLocaleString()}.` : '';
+        if (elements.mpGiftPreview) {
+            elements.mpGiftPreview.innerHTML = item
+                ? `${item.icon ? `<img src="${escapeHtml(item.icon)}" alt="">` : '<span aria-hidden="true">🎁</span>'}<div><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(giftTypeLabel(item.giftType))}</small></div>`
+                : '';
+        }
     }
 
     function closeGiftModal() {
@@ -2182,7 +2904,33 @@
         resolve?.(allowed);
     }
 
+    function closeOnlineSurfacesForOffline() {
+        // Leave server-owned rooms while the socket is still available, then
+        // collapse every online surface so offline mode always lands on the
+        // normal Flappy Monkey lobby instead of a disconnected mode screen.
+        window.FlappyMonkeyDuel?.close?.(false);
+        closeOnlineDefense({ leave:true });
+        closeMonkeyWorld({ leave:true });
+        closeMultiplayer();
+        closeOnlineHub({ restoreWorld:false });
+        closeSharedSocial();
+        closeInbox();
+        closeActivityFeed();
+        closeGiftModal();
+        closeClanModal();
+        closeRankedModal();
+        closeGroupModal();
+        closePublicProfile();
+        monkeyWorld.onlineHubReturn = false;
+        for (const id of ['mpAccountDangerModal','mpRewardModal','onlineConsentModal','mwEventRewardModal','odResult']) {
+            const modal = document.getElementById(id);
+            modal?.classList.remove('open');
+            modal?.setAttribute('aria-hidden','true');
+        }
+    }
+
     function goOffline(message = 'Offline mode enabled. The base game remains fully playable.') {
+        closeOnlineSurfacesForOffline();
         state.onlineOptIn = false;
         state.authenticated = false;
         sessionStorage.removeItem('flappyOnlineOptIn');
@@ -2248,7 +2996,9 @@
 
     function send(message) {
         if (state.socket?.readyState !== WebSocket.OPEN) {
-            showToast('Not connected to the multiplayer server.', true);
+            const onlineUiOpen = elements.multiplayerScreen?.classList.contains('open')
+                || elements.onlineStartupGate && !elements.onlineStartupGate.classList.contains('unlocked');
+            if (state.onlineOptIn && onlineUiOpen) showToast('Not connected to the multiplayer server.', true);
             return false;
         }
         state.socket.send(JSON.stringify(message));
@@ -2256,6 +3006,12 @@
     }
 
     window.flappyOnlineSend = send;
+    window.flappyMonkeyWorldVoiceSignal = (targetId, signal) => send({ type:'monkey_world_voice_signal', targetId, signal });
+    window.flappyMonkeyWorldVoiceContext = () => ({
+        joined:monkeyWorld.joined,
+        localId:state.account?.id || '',
+        players:[...monkeyWorld.players.values()]
+    });
     window.flappyOnlineState = () => ({
         connected: state.socket?.readyState === WebSocket.OPEN,
         authenticated: state.authenticated,
@@ -2534,7 +3290,7 @@
     function renderAccount() {
         if (!state.account) return;
         ensureOnlineSettingsPanel();
-        elements.mpAccountName.innerHTML = `<span>${escapeHtml(state.account.username)}${platformBadgeHtml(state.account.platform)}</span>${sharedTitleHtml({ ...state.account, ...localTitleProfile() })}`;
+        elements.mpAccountName.innerHTML = `<span>${sharedNameHtml({ ...state.account, ...localTitleProfile() }, 'Monkey')}${platformBadgeHtml(state.account.platform)}</span>${sharedTitleHtml({ ...state.account, ...localTitleProfile() })}`;
         const stats = state.account.stats || {};
         elements.mpStats.innerHTML = [
             ['Matches', stats.matches || 0], ['Wins', stats.wins || 0], ['Best Score', stats.bestScore || 0],
@@ -2569,21 +3325,21 @@
         const equippedTitle = sharedTitleHtml(profile);
         const presence = profile.presence || (profile.online ? 'Online' : 'Offline');
         const clanTag = profile.clan ? `<span class="mp-clan-tag" style="color:${escapeHtml(profile.clan.tagColor || '#ffe56c')}">[${escapeHtml(profile.clan.tag)}]</span> ` : '';
-        return `<div class="mp-social-person"><img src="${escapeHtml(profile.profilePicture || profile.skin)}" alt=""><div><div class="mp-social-name">${profile.ranked ? `<img class="mp-inline-rank" src="${escapeHtml(rankIconSource(profile.ranked))}" alt="${escapeHtml(profile.ranked.rank)}">` : ''}${clanTag}${escapeHtml(profile.username)}${platformBadgeHtml(profile.platform)} <span class="mp-level-badge">Lv. ${Math.max(1, Number(profile.level) || 1)}</span></div>${equippedTitle}<div class="mp-social-status ${profile.online ? 'online' : ''}">${escapeHtml(presence)}</div></div><div class="mp-social-actions">${actions}</div></div>`;
+        return `<div class="mp-social-person" ${bannerAttributesFor(profile)}><img src="${escapeHtml(profile.profilePicture || profile.skin)}" alt=""><div><div class="mp-social-name">${profile.ranked ? `<img class="mp-inline-rank" src="${escapeHtml(rankIconSource(profile.ranked))}" alt="${escapeHtml(profile.ranked.rank)}">` : ''}${clanTag}${sharedNameHtml(profile, 'Monkey')}${platformBadgeHtml(profile.platform)} <span class="mp-level-badge">Lv. ${Math.max(1, Number(profile.level) || 1)}</span></div>${equippedTitle}<div class="mp-social-status ${profile.online ? 'online' : ''}">${escapeHtml(presence)}</div></div><div class="mp-social-actions">${actions}</div></div>`;
     }
 
     function renderParty() {
         elements.mpCreateParty.classList.toggle('mp-hidden', Boolean(state.party));
         if (!state.party) {
             elements.mpParty.innerHTML = state.partyInvitations.length ? state.partyInvitations.map((invite) => `
-                <div class="mp-party-invite"><strong>${escapeHtml(invite.leader.username)}${platformBadgeHtml(invite.leader.platform)} invited you</strong><span>${invite.memberCount}/8 members</span><div><button class="mp-primary" type="button" data-party-action="accept" data-party-id="${escapeHtml(invite.id)}">Accept</button><button class="mp-secondary" type="button" data-party-action="decline" data-party-id="${escapeHtml(invite.id)}">Decline</button></div></div>
+                <div class="mp-party-invite"><strong>${sharedNameHtml(invite.leader, 'Monkey')}${platformBadgeHtml(invite.leader.platform)} invited you</strong><span>${invite.memberCount}/8 members</span><div><button class="mp-primary" type="button" data-party-action="accept" data-party-id="${escapeHtml(invite.id)}">Accept</button><button class="mp-secondary" type="button" data-party-action="decline" data-party-id="${escapeHtml(invite.id)}">Decline</button></div></div>
             `).join('') : '<div class="mp-empty-state">Create a party to queue with friends.</div>';
             return;
         }
         const leader = state.party.leaderId === state.account?.id;
         elements.mpParty.innerHTML = `
             <div class="mp-party-summary"><strong>Party · ${state.party.members.length}/8</strong>${state.party.members.map((member) => `
-                <div class="mp-party-member"><img src="${escapeHtml(member.profilePicture || member.skin)}" alt=""><span>${escapeHtml(member.username)}${platformBadgeHtml(member.platform)}${member.id === state.party.leaderId ? ' 👑' : ''}${sharedTitleHtml(member.id === state.account?.id ? localTitleProfile() : member)}<small>${escapeHtml(member.presence || (member.online ? 'Online' : 'Offline'))}</small></span>${leader && member.id !== state.account?.id ? `<div><button type="button" data-party-action="promote" data-user-id="${escapeHtml(member.id)}">Leader</button><button class="mp-danger" type="button" data-party-action="kick" data-user-id="${escapeHtml(member.id)}">Kick</button></div>` : ''}</div>
+                <div class="mp-party-member" ${bannerAttributesFor(member.id === state.account?.id ? { ...member, banner:currentBanner() } : member)}><img src="${escapeHtml(member.profilePicture || member.skin)}" alt=""><span>${sharedNameHtml(member.id === state.account?.id ? { ...member, ...localTitleProfile() } : member, 'Monkey')}${platformBadgeHtml(member.platform)}${member.id === state.party.leaderId ? ' 👑' : ''}${sharedTitleHtml(member.id === state.account?.id ? localTitleProfile() : member)}<small>${escapeHtml(member.presence || (member.online ? 'Online' : 'Offline'))}</small></span>${leader && member.id !== state.account?.id ? `<div><button type="button" data-party-action="promote" data-user-id="${escapeHtml(member.id)}">Leader</button><button class="mp-danger" type="button" data-party-action="kick" data-user-id="${escapeHtml(member.id)}">Kick</button></div>` : ''}</div>
             `).join('')}<button class="mp-danger" type="button" data-party-action="leave">${leader && state.party.members.length === 1 ? 'Disband Party' : 'Leave Party'}</button></div>`;
     }
 
@@ -2599,11 +3355,34 @@
         } else elements.mpClanSummary.innerHTML = '<div class="mp-empty-state">No clan yet.</div>';
     }
 
+    function clanBrandingHasChanges() {
+        const clan = state.clan;
+        if (!clan || clan.myRole !== 'owner') return false;
+        if (clan.brandingUnlocks?.icon && state.pendingClanIcon) return true;
+        if (clan.brandingUnlocks?.banner && state.pendingClanBanner) return true;
+        if (!clan.brandingUnlocks?.colors) return false;
+        const color = document.getElementById('mpClanColor');
+        const tagColor = document.getElementById('mpClanTagColor');
+        return Boolean(
+            (color && color.value.toLowerCase() !== String(clan.color || '').toLowerCase())
+            || (tagColor && tagColor.value.toLowerCase() !== String(clan.tagColor || '').toLowerCase())
+        );
+    }
+
+    function updateClanBrandingSaveState() {
+        const saveButton = document.getElementById('mpSaveClanBranding');
+        if (!saveButton) return;
+        const hasChanges = clanBrandingHasChanges();
+        saveButton.disabled = !hasChanges;
+        saveButton.setAttribute('aria-disabled', String(!hasChanges));
+        saveButton.textContent = hasChanges ? 'Save Branding' : 'No Branding Changes';
+    }
+
     function renderClanModal() {
         elements.mpClanError.textContent = '';
         if (!state.clan) {
             elements.mpClanContent.innerHTML = `
-                ${state.clanInvitations.length ? `<div class="mp-clan-invites"><h3>Clan Invitations</h3>${state.clanInvitations.map((invite) => `<div class="mp-party-invite"><strong>[${escapeHtml(invite.tag)}] ${escapeHtml(invite.name)}</strong><span>Invited by ${escapeHtml(invite.owner.username)}</span><div><button class="mp-primary" data-clan-action="accept" data-clan-id="${escapeHtml(invite.id)}" type="button">Accept</button><button class="mp-secondary" data-clan-action="decline" data-clan-id="${escapeHtml(invite.id)}" type="button">Decline</button></div></div>`).join('')}</div>` : ''}
+                ${state.clanInvitations.length ? `<div class="mp-clan-invites"><h3>Clan Invitations</h3>${state.clanInvitations.map((invite) => `<div class="mp-party-invite"><strong>[${escapeHtml(invite.tag)}] ${escapeHtml(invite.name)}</strong><span>Invited by ${sharedNameHtml(invite.owner, 'Monkey')}</span><div><button class="mp-primary" data-clan-action="accept" data-clan-id="${escapeHtml(invite.id)}" type="button">Accept</button><button class="mp-secondary" data-clan-action="decline" data-clan-id="${escapeHtml(invite.id)}" type="button">Decline</button></div></div>`).join('')}</div>` : ''}
                 <form id="mpCreateClanForm" class="mp-form"><h3>Create a Clan</h3><label>Unique clan name<input id="mpClanName" maxlength="30" required placeholder="Jungle Legends"></label><label>Unique clan tag (2–5)<input id="mpClanTag" maxlength="5" required placeholder="JUNG"></label><button class="mp-primary" type="submit">Create Clan</button></form>`;
             return;
         }
@@ -2613,9 +3392,10 @@
         const bannerStyle = clan.banner ? `background-image:linear-gradient(rgba(0,0,0,.35),rgba(0,0,0,.55)),url('${escapeHtml(clan.banner)}')` : `background:${escapeHtml(clan.color)}`;
         elements.mpClanContent.innerHTML = `
             <div class="mp-clan-hero" style="${bannerStyle}">${clan.icon ? `<img src="${escapeHtml(clan.icon)}" alt="Clan icon">` : '<div class="mp-clan-fallback">🐵</div>'}<div><h3><span style="color:${escapeHtml(clan.tagColor)}">[${escapeHtml(clan.tag)}]</span> ${escapeHtml(clan.name)}</h3><strong>Clan Level ${clan.level}</strong><span>${Number(clan.xp).toLocaleString()} Clan XP · ${Number(clan.totalScore).toLocaleString()} quest score</span></div></div>
-            <div class="mp-clan-columns"><section><h3>Members</h3><div class="mp-clan-members">${clan.members.map((member) => `<div class="mp-party-member"><img src="${escapeHtml(member.profilePicture || member.skin)}" alt=""><span>${escapeHtml(member.username)}${platformBadgeHtml(member.platform)}${sharedTitleHtml(member.id === state.account?.id ? localTitleProfile() : member)}<small>${escapeHtml(member.role)} · ${escapeHtml(member.presence || 'Offline')}</small></span>${isOwner && member.id !== state.account?.id ? `<div><button data-clan-action="officer" data-user-id="${escapeHtml(member.id)}" type="button">${member.role === 'officer' ? 'Demote' : 'Officer'}</button><button data-clan-action="owner" data-user-id="${escapeHtml(member.id)}" type="button">Owner</button><button class="mp-danger" data-clan-action="kick" data-user-id="${escapeHtml(member.id)}" type="button">Kick</button></div>` : ''}</div>`).join('')}</div><button class="mp-danger" data-clan-action="leave" type="button">${isOwner && clan.members.length === 1 ? 'Disband Clan' : 'Leave Clan'}</button></section>
+            <div class="mp-clan-columns"><section><h3>Members</h3><div class="mp-clan-members">${clan.members.map((member) => { const presentation=member.id === state.account?.id ? { ...member, ...localTitleProfile(), banner:currentBanner() } : member; return `<div class="mp-party-member mp-clan-member-card" ${bannerAttributesFor(presentation)}><img src="${escapeHtml(member.profilePicture || member.skin)}" alt=""><div class="mp-clan-member-copy"><strong class="mp-clan-member-name" title="${escapeHtml(member.username)}">${sharedNameHtml(presentation, 'Monkey')}${platformBadgeHtml(member.platform)}</strong>${sharedTitleHtml(presentation, 'mp-clan-member-title')}<small>${escapeHtml(member.role)} · ${escapeHtml(member.presence || 'Offline')}</small></div>${isOwner && member.id !== state.account?.id ? `<div class="mp-clan-member-actions"><button data-clan-action="officer" data-user-id="${escapeHtml(member.id)}" type="button">${member.role === 'officer' ? 'Demote' : 'Officer'}</button><button data-clan-action="owner" data-user-id="${escapeHtml(member.id)}" type="button">Owner</button><button class="mp-danger" data-clan-action="kick" data-user-id="${escapeHtml(member.id)}" type="button">Kick</button></div>` : ''}</div>`; }).join('')}</div><button class="mp-danger" data-clan-action="leave" type="button">${isOwner && clan.members.length === 1 ? 'Disband Clan' : 'Leave Clan'}</button></section>
             <section><h3>Clan Quests</h3><div class="mp-clan-quests">${clan.quests.map((quest) => { const percent = Math.min(100, clan.totalScore / quest.goal * 100); return `<article class="${quest.completedAt ? 'complete' : ''}"><strong>${escapeHtml(quest.label)}</strong><span>Reward: ${escapeHtml(clanRewardText(quest.reward))}</span><div><i style="width:${percent}%"></i></div><small>${quest.completedAt ? 'COMPLETED' : `${Math.min(clan.totalScore, quest.goal).toLocaleString()} / ${quest.goal.toLocaleString()}`}</small></article>`; }).join('')}</div></section></div>
-            ${isOwner ? `<form id="mpClanBrandingForm" class="mp-form mp-clan-branding"><h3>Clan Branding</h3><p class="mp-note">Icon unlocks at Level 2, banner at Level 3, and colors at Level 4.</p><div class="mp-button-row"><input id="mpClanIconFile" class="mp-hidden" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><button id="mpChooseClanIcon" type="button" ${clan.brandingUnlocks.icon ? '' : 'disabled'}>Choose Icon</button><input id="mpClanBannerFile" class="mp-hidden" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><button id="mpChooseClanBanner" type="button" ${clan.brandingUnlocks.banner ? '' : 'disabled'}>Choose Banner</button></div><div class="mp-clan-colors"><label>Clan color<input id="mpClanColor" type="color" value="${escapeHtml(clan.color)}" ${clan.brandingUnlocks.colors ? '' : 'disabled'}></label><label>Tag color<input id="mpClanTagColor" type="color" value="${escapeHtml(clan.tagColor)}" ${clan.brandingUnlocks.colors ? '' : 'disabled'}></label></div><button class="mp-primary" type="submit">Save Branding</button></form>` : canManage ? '<p class="mp-note">As a clan officer, use the Clan Invite button on accepted friends.</p>' : ''}`;
+            ${isOwner ? `<form id="mpClanBrandingForm" class="mp-form mp-clan-branding"><h3>Clan Branding</h3><p class="mp-note">Each branding option unlocks with your clan level. Locked options cannot be opened or saved.</p><div class="mp-clan-branding-options"><div class="mp-clan-branding-option ${clan.brandingUnlocks.icon ? '' : 'locked'}"><span><strong>Clan icon</strong><small>${clan.brandingUnlocks.icon ? 'Unlocked' : 'Unlocks at Clan Level 2'}</small></span><input id="mpClanIconFile" class="mp-hidden" type="file" accept="image/png,image/jpeg,image/webp,image/gif" ${clan.brandingUnlocks.icon ? '' : 'disabled'}><button id="mpChooseClanIcon" type="button" ${clan.brandingUnlocks.icon ? '' : 'disabled aria-disabled="true" title="Unlocks at Clan Level 2"'}>${clan.brandingUnlocks.icon ? 'Choose Icon' : '🔒 Level 2 Required'}</button></div><div class="mp-clan-branding-option ${clan.brandingUnlocks.banner ? '' : 'locked'}"><span><strong>Clan banner</strong><small>${clan.brandingUnlocks.banner ? 'Unlocked' : 'Unlocks at Clan Level 3'}</small></span><input id="mpClanBannerFile" class="mp-hidden" type="file" accept="image/png,image/jpeg,image/webp,image/gif" ${clan.brandingUnlocks.banner ? '' : 'disabled'}><button id="mpChooseClanBanner" type="button" ${clan.brandingUnlocks.banner ? '' : 'disabled aria-disabled="true" title="Unlocks at Clan Level 3"'}>${clan.brandingUnlocks.banner ? 'Choose Banner' : '🔒 Level 3 Required'}</button></div></div><div class="mp-clan-colors ${clan.brandingUnlocks.colors ? '' : 'locked'}"><label>Clan color<input id="mpClanColor" type="color" value="${escapeHtml(clan.color)}" ${clan.brandingUnlocks.colors ? '' : 'disabled title="Unlocks at Clan Level 4"'}></label><label>Tag color<input id="mpClanTagColor" type="color" value="${escapeHtml(clan.tagColor)}" ${clan.brandingUnlocks.colors ? '' : 'disabled title="Unlocks at Clan Level 4"'}></label>${clan.brandingUnlocks.colors ? '' : '<small>🔒 Clan colors unlock at Level 4</small>'}</div><button id="mpSaveClanBranding" class="mp-primary" type="submit" disabled aria-disabled="true">No Branding Changes</button></form>` : canManage ? '<p class="mp-note">As a clan officer, use the Clan Invite button on accepted friends.</p>' : ''}`;
+        updateClanBrandingSaveState();
     }
 
     function openClanModal() {
@@ -2647,10 +3427,11 @@
         elements.mpRankedHomeSummary.innerHTML = `${rankBadgeHtml(ranked)}<div class="mp-rank-progress"><i style="width:${Number(ranked.progress) || 0}%"></i></div><small>${ranked.nextRank ? `${Number(ranked.nextRp).toLocaleString()} RP for ${escapeHtml(ranked.nextRank)}` : 'Monkey King RP is uncapped forever'}</small>`;
         elements.mpRankedQueue.textContent = state.rankedQueued ? 'Cancel Ranked Queue' : 'Find Ranked Match';
         const ladder = state.rankedTiers.map((tier) => `<div class="mp-rank-tier ${tier.name === ranked.rank ? 'current' : ''}"><img src="${escapeHtml(rankIconSource(tier))}" alt=""><span><strong>${escapeHtml(tier.name)}</strong><small>${Number(tier.minimumRp).toLocaleString()} RP</small></span></div>`).join('');
-        const leaders = state.rankedLeaderboard.length ? state.rankedLeaderboard.map((entry) => `<button class="mp-ranked-leader" type="button" data-ranked-profile="${escapeHtml(entry.id)}"><b>#${entry.place}</b><img src="${escapeHtml(rankIconSource(entry.ranked))}" alt=""><span><strong>${entry.clan ? `[${escapeHtml(entry.clan.tag)}] ` : ''}${escapeHtml(entry.username)}${platformBadgeHtml(entry.platform)}</strong><small>${escapeHtml(entry.ranked.rank)} · ${Number(entry.ranked.rp).toLocaleString()} RP</small></span></button>`).join('') : '<div class="mp-empty-state">No one has completed a Season 1 ranked match yet.</div>';
+        const leaders = state.rankedLeaderboard.length ? state.rankedLeaderboard.map((entry) => `<button class="mp-ranked-leader" type="button" data-ranked-profile="${escapeHtml(entry.id)}" ${bannerAttributesFor(entry)}><b>#${entry.place}</b><img src="${escapeHtml(rankIconSource(entry.ranked))}" alt=""><span><strong>${entry.clan ? `[${escapeHtml(entry.clan.tag)}] ` : ''}${sharedNameHtml(entry, 'Monkey')}${platformBadgeHtml(entry.platform)}</strong><small>${escapeHtml(entry.ranked.rank)} · ${Number(entry.ranked.rp).toLocaleString()} RP</small></span></button>`).join('') : '<div class="mp-empty-state">No one has completed a Season 1 ranked match yet.</div>';
         const history = ranked.history?.length ? ranked.history.map((entry) => `<div class="mp-rank-history"><strong>Season ${entry.season} Ranked</strong><span>${escapeHtml(entry.highestRank)} · ${Number(entry.peakRp).toLocaleString()} peak RP · ${Number(entry.progress)}% rank progress</span></div>`).join('') : '<div class="mp-empty-state">Season history appears here after a season reset.</div>';
         const ownerTools = state.account?.isOwner ? `<form id="mpOwnerRankForm" class="mp-form mp-owner-rank"><h3>Owner Rank Controls</h3><input id="mpOwnerRankUser" placeholder="FMU_... User ID" required><select id="mpOwnerRankSelect">${state.rankedTiers.map((tier) => `<option value="${escapeHtml(tier.name)}">${escapeHtml(tier.name)}</option>`).join('')}</select><div class="mp-button-row"><button class="mp-primary" type="submit">Set Rank</button><button id="mpOwnerRemoveRank" class="mp-danger" type="button">Remove Rank</button><button id="mpOwnerResetRanks" class="mp-danger" type="button">Reset Everyone</button></div></form>` : '';
         elements.mpRankedContent.innerHTML = `<div class="mp-ranked-current">${rankBadgeHtml(ranked)}<div><div class="mp-rank-progress"><i style="width:${Number(ranked.progress) || 0}%"></i></div><span>${ranked.nextRank ? `${Number(ranked.nextRp - ranked.rp).toLocaleString()} RP remaining to ${escapeHtml(ranked.nextRank)}` : 'Monkey King cannot demote. Keep earning uncapped RP to climb the leaderboard.'}</span></div></div><div class="mp-ranked-columns"><section><h3>All Ranks</h3><div class="mp-rank-ladder">${ladder}</div></section><section><h3>Global Leaderboard</h3><div class="mp-ranked-leaders">${leaders}</div><h3>Rank History</h3>${history}</section></div>${ownerTools}`;
+        elements.mpRankedContent.querySelectorAll('[data-ranked-profile]').forEach((entry, index) => window.FlappyBanners?.applyTo?.(entry, state.rankedLeaderboard[index]?.banner || 'skin-default'));
     }
 
     function openRankedModal() {
@@ -2695,8 +3476,41 @@
         if (monkeyWorld.joined && monkeyWorld.pausedForMenu && elements.monkeyWorldScreen.classList.contains('open')) restoreWorldAfterMenu();
     }
 
+    let renderedChatConversationKey = '';
+    let forceChatScrollToBottom = true;
+    let chatUserScrolledAway = false;
+
+    function captureChatScroll(conversationKey) {
+        const container = elements.mpMessages;
+        const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
+        return {
+            conversationKey,
+            scrollTop: container.scrollTop,
+            stickToBottom: forceChatScrollToBottom
+                || renderedChatConversationKey !== conversationKey
+                || !chatUserScrolledAway && maximum - container.scrollTop <= 8
+        };
+    }
+
+    function restoreChatScroll(snapshot) {
+        const container = elements.mpMessages;
+        renderedChatConversationKey = snapshot.conversationKey;
+        forceChatScrollToBottom = false;
+        chatUserScrolledAway = !snapshot.stickToBottom;
+        container.scrollTop = snapshot.stickToBottom
+            ? container.scrollHeight
+            : Math.min(snapshot.scrollTop, Math.max(0, container.scrollHeight - container.clientHeight));
+    }
+
+    function themedMessageClass() {
+        const themeId = document.body.dataset.profileTheme || document.documentElement.dataset.profileTheme || '';
+        const liveThemeText = document.documentElement.style.getPropertyValue('--equipped-theme-text').trim();
+        return (themeId && themeId !== 'none') || liveThemeText ? 'mp-theme-readable' : '';
+    }
+
     function renderSocial() {
         const social = state.social || { friends: [], incoming: [], outgoing: [], blocked: [], groups: [], messages: [] };
+        const themeMessageClass = themedMessageClass();
         social.groups = Array.isArray(social.groups) ? social.groups : [];
         const empty = '<div class="mp-empty-state">None right now.</div>';
         elements.mpFriendRequests.innerHTML = social.incoming.length ? social.incoming.map((profile) => socialPersonHtml(profile, 'incoming')).join('') : empty;
@@ -2713,6 +3527,7 @@
         const activeGroup = social.groups.find((group) => group.id === state.activeGroupId);
         if (activeGroup) {
             state.activeFriendId = null;
+            const chatScroll = captureChatScroll(`group:${activeGroup.id}`);
             elements.mpConversationTitle.textContent = `${activeGroup.name} · ${activeGroup.members.length} members`;
             const memberMap = new Map(activeGroup.members.map((member) => [member.id, member]));
             const conversation = [...(activeGroup.messages || [])]
@@ -2728,12 +3543,12 @@
                 const mediaSource = message.mediaData || '';
                 const media = mediaSource ? `<a href="${escapeHtml(mediaSource)}" target="_blank" rel="noopener noreferrer"><img class="mp-message-media" src="${escapeHtml(mediaSource)}" alt="${escapeHtml(message.mediaName || 'Shared image or GIF')}" loading="lazy"></a>` : '';
                 const deleteButton = mine || activeGroup.isOwner ? `<button class="mp-message-delete" type="button" data-delete-message="${escapeHtml(message.id)}" aria-label="Delete this group message">Delete</button>` : '';
-                return `<div class="mp-message ${mine ? 'mine' : ''}"><div class="mp-group-sender">${escapeHtml(sender?.username || 'Former member')}${platformBadgeHtml(sender?.platform)}</div>${sharedTitleHtml(sender, 'mp-message-title')}${safeText ? `<div>${safeText}</div>` : ''}${media}<div class="mp-message-meta"><div class="mp-message-time">${escapeHtml(time)}</div>${deleteButton}</div></div>`;
+                return `<div class="mp-message ${mine ? 'mine' : ''} ${themeMessageClass}" ${bannerAttributesFor(sender || message)}><div class="mp-group-sender">${sharedNameHtml(sender, 'Former member')}${platformBadgeHtml(sender?.platform)}</div>${sharedTitleHtml(sender, 'mp-message-title')}${safeText ? `<div class="mp-message-body">${safeText}</div>` : ''}${media}<div class="mp-message-meta"><div class="mp-message-time">${escapeHtml(time)}</div>${deleteButton}</div></div>`;
             }).join('') : '<div class="mp-empty-state">No group messages yet. Say hello!</div>';
             elements.mpMessageForm.classList.remove('mp-hidden');
             elements.mpClearConversation.classList.add('mp-hidden');
             elements.mpGroupSettings.classList.remove('mp-hidden');
-            elements.mpMessages.scrollTop = elements.mpMessages.scrollHeight;
+            restoreChatScroll(chatScroll);
             return;
         }
         state.activeGroupId = null;
@@ -2742,13 +3557,17 @@
         const activeFriend = social.friends.find((profile) => profile.id === state.activeFriendId);
         if (!activeFriend) {
             state.activeFriendId = null;
+            renderedChatConversationKey = '';
+            forceChatScrollToBottom = true;
+            chatUserScrolledAway = false;
             elements.mpConversationTitle.textContent = 'Select a friend';
             elements.mpMessages.innerHTML = '<div class="mp-empty-state">Choose a friend to view your private messages.</div>';
             elements.mpMessageForm.classList.add('mp-hidden');
             elements.mpClearConversation.classList.add('mp-hidden');
             return;
         }
-        elements.mpConversationTitle.textContent = `${activeFriend.username} · ${activeFriend.presence || (activeFriend.online ? 'Online' : 'Offline')}`;
+        elements.mpConversationTitle.innerHTML = `${sharedNameHtml(activeFriend, 'Monkey')} <span>· ${escapeHtml(activeFriend.presence || (activeFriend.online ? 'Online' : 'Offline'))}</span>`;
+        const chatScroll = captureChatScroll(`friend:${activeFriend.id}`);
         const conversation = social.messages
             .filter((message) => message.fromId === activeFriend.id || message.toId === activeFriend.id)
             .filter((message) => message.text || message.mediaData || message.mediaUrl)
@@ -2763,11 +3582,11 @@
             const mediaSource = message.mediaData || message.mediaUrl || '';
             const media = mediaSource ? `<a href="${escapeHtml(mediaSource)}" target="_blank" rel="noopener noreferrer"><img class="mp-message-media" src="${escapeHtml(mediaSource)}" alt="${escapeHtml(message.mediaName || 'Shared image or GIF')}" loading="lazy"></a>` : '';
             const deleteButton = mine ? `<button class="mp-message-delete" type="button" data-delete-message="${escapeHtml(message.id)}" aria-label="Delete this message">Delete</button>` : '';
-            return `<div class="mp-message ${mine ? 'mine' : ''}"><div class="mp-group-sender">${escapeHtml(sender?.username || 'Monkey')}${platformBadgeHtml(sender?.platform)}</div>${sharedTitleHtml(sender, 'mp-message-title')}${safeText ? `<div>${safeText}</div>` : ''}${media}<div class="mp-message-meta"><div class="mp-message-time">${escapeHtml(time)}</div>${deleteButton}</div></div>`;
+            return `<div class="mp-message ${mine ? 'mine' : ''} ${themeMessageClass}" ${bannerAttributesFor(sender || message)}><div class="mp-group-sender">${sharedNameHtml(sender, 'Monkey')}${platformBadgeHtml(sender?.platform)}</div>${sharedTitleHtml(sender, 'mp-message-title')}${safeText ? `<div class="mp-message-body">${safeText}</div>` : ''}${media}<div class="mp-message-meta"><div class="mp-message-time">${escapeHtml(time)}</div>${deleteButton}</div></div>`;
         }).join('') : '<div class="mp-empty-state">No messages yet. Say hello!</div>';
         elements.mpMessageForm.classList.remove('mp-hidden');
         elements.mpClearConversation.classList.toggle('mp-hidden', conversation.length === 0);
-        elements.mpMessages.scrollTop = elements.mpMessages.scrollHeight;
+        restoreChatScroll(chatScroll);
         if (conversation.some((message) => message.fromId === activeFriend.id && !message.readAt)) {
             send({ type: 'mark_friend_messages_read', userId: activeFriend.id });
         }
@@ -2817,6 +3636,8 @@
     }
 
     function selectFriend(userId) {
+        forceChatScrollToBottom = true;
+        chatUserScrolledAway = false;
         state.activeFriendId = userId;
         state.activeGroupId = null;
         clearPendingMessageAttachment();
@@ -2825,6 +3646,8 @@
     }
 
     function selectGroup(groupId) {
+        forceChatScrollToBottom = true;
+        chatUserScrolledAway = false;
         state.activeGroupId = groupId;
         state.activeFriendId = null;
         clearPendingMessageAttachment();
@@ -2921,9 +3744,13 @@
         elements.mpClearGroupIcon.disabled = !ownerCanEdit;
         const selected = new Set((group?.members || []).map((member) => member.id));
         elements.mpGroupMembers.innerHTML = state.social.friends.length ? state.social.friends.map((friend) => `
-            <label class="mp-group-member"><input type="checkbox" value="${escapeHtml(friend.id)}" ${selected.has(friend.id) ? 'checked' : ''} ${ownerCanEdit ? '' : 'disabled'}><img src="${escapeHtml(friend.profilePicture || friend.skin)}" alt=""><span>${escapeHtml(friend.username)}${platformBadgeHtml(friend.platform)}</span></label>
+            <label class="mp-group-member"><input type="checkbox" value="${escapeHtml(friend.id)}" ${selected.has(friend.id) ? 'checked' : ''} ${ownerCanEdit ? '' : 'disabled'}><img src="${escapeHtml(friend.profilePicture || friend.skin)}" alt=""><span>${sharedNameHtml(friend, 'Monkey')}${platformBadgeHtml(friend.platform)}</span></label>
         `).join('') : '<div class="mp-empty-state">Add accepted friends before creating a group.</div>';
         elements.mpSaveGroup.classList.toggle('mp-hidden', !ownerCanEdit);
+        // A successful save closes this modal while the submit button is still
+        // disabled. Always reset that transient state when the editor reopens.
+        state.pendingGroupAction = false;
+        elements.mpSaveGroup.disabled = !ownerCanEdit;
         elements.mpSaveGroup.textContent = group ? 'Save Group' : 'Create Group';
         elements.mpLeaveGroup.classList.toggle('mp-hidden', !group);
         elements.mpDeleteGroup.classList.toggle('mp-hidden', !group?.isOwner);
@@ -3123,21 +3950,31 @@
             if (emoji?.file) preview = `<img src="${escapeHtml(emoji.file)}" alt="">`;
         } else if (section === 'trails' && typeof trails !== 'undefined') {
             const trail = trails.find((item) => item.name === label || item.id === label);
-            const color = trail?.color === 'rainbow' ? 'linear-gradient(135deg,#ff5b67,#ffe35b,#58e69b,#6e8cff,#d66bff)' : (trail?.color || '#ffe36b');
-            preview = `<span class="mp-inventory-trail" style="background:${color}">✦</span>`;
-        } else if ((section === 'explosionVfx' || section === 'equippedExplosionVfx') && typeof explosionVfxOptions !== 'undefined') {
+            preview = trail ? `<img src="${escapeHtml(cosmeticIconPath('trail',trail.id))}" alt="">` : preview;
+        } else if (section === 'explosionVfx' && typeof explosionVfxOptions !== 'undefined') {
             const effect = explosionVfxOptions.find((item) => item.name === label || item.id === label);
-            preview = `<span class="mp-inventory-generic" style="background:radial-gradient(circle,${escapeHtml(effect?.color || '#ffe36b')},#10281e 72%);font-size:24px">${escapeHtml(effect?.icon || '✦')}</span>`;
+            if (effect) preview = `<img src="${escapeHtml(cosmeticIconPath('vfx',effect.id))}" alt="">`;
         } else if (section === 'themes' && typeof profileBackgrounds !== 'undefined') {
             const theme = profileBackgrounds.find((item) => item.name === label || item.id === label);
-            preview = `<span class="mp-inventory-theme" style="background:${theme?.css || '#1a1a2e'}"></span>`;
+            if (theme) preview = `<img src="${escapeHtml(cosmeticIconPath('theme',theme.id))}" alt="">`;
         } else if (section === 'pipeSkins') {
-            preview = '<span class="mp-inventory-pipes"><i></i><i></i></span>';
+            const item = typeof pipeThemes !== 'undefined' ? pipeThemes.find((entry) => entry.name === label || entry.id === label) : null;
+            if (item) preview = `<img src="${escapeHtml(cosmeticIconPath('pipe',item.id))}" alt="">`;
         } else if (section === 'titleStyles') {
-            const effect = /fire/i.test(label) ? 'fire' : /glitch/i.test(label) ? 'glitch' : /neon/i.test(label) ? 'neon' : 'sparkle';
-            preview = `<span class="mp-inventory-titlefx ${effect}"><i></i></span>`;
+            const item = typeof titleFXOptions !== 'undefined' ? titleFXOptions.find((entry) => entry.name === label || entry.id === label) : null;
+            if (item) preview = `<img src="${escapeHtml(cosmeticIconPath('style',item.id))}" alt="">`;
         } else if (section === 'titles') {
-            preview = '<span class="mp-inventory-title-icon"><i></i><b></b></span>';
+            const linked = typeof monkeySkins !== 'undefined' ? monkeySkins.find((skin) => skin.linkedTitle === label) : null;
+            preview = linked?.file ? `<img src="${escapeHtml(linked.file)}" alt="">` : '<span class="mp-inventory-title-icon"><i></i><b></b></span>';
+        } else if (section === 'auras') {
+            const aura = (window.FlappyAuras?.definitions || []).find((item) => item.name === label || item.id === label);
+            if (aura) preview = `<img src="${escapeHtml(aura.icon)}" alt="">`;
+        } else if (section === 'banners') {
+            const banner = (window.FlappyBanners?.definitions || []).find((item) => item.name === label || item.id === label);
+            if (banner) preview = window.FlappyBanners.previewMarkup(banner,'profile');
+        } else if (section === 'emotes') {
+            const emote = (window.FlappyEmotes?.definitions || []).find((item) => item.name === label || item.id === label);
+            if (emote) preview = `<img src="${escapeHtml(emote.icon)}" alt="">`;
         } else if (section === 'boosts') {
             const file = /crate|luck/i.test(label) ? 'powerup-crate-luck.png'
                 : /revive/i.test(label) ? 'powerup-revive.png'
@@ -3149,7 +3986,8 @@
         }
         const quantity = Math.max(1, Math.floor(Number(count) || 1));
         const quantityBadge = section === 'boosts' ? `<b class="mp-inventory-count" aria-label="${quantity} owned">×${quantity}</b>` : '';
-        return `<article class="mp-inventory-item">${preview}<span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(section.replace(/([A-Z])/g, ' $1').trim())}</small></span>${quantityBadge}</article>`;
+        const sectionLabel = ({ explosionVfx:'Explosion VFX',pipeSkins:'Pipe Skins',titleStyles:'Title Styles',themes:'Themes',trails:'Trails',titles:'Titles',skins:'Skins',auras:'Auras',banners:'Banners',emotes:'Emotes',emojis:'Emojis',boosts:'Boosts' })[section] || section.replace(/([A-Z])/g,' $1').trim();
+        return `<article class="mp-inventory-item">${preview}<span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(sectionLabel)}</small></span>${quantityBadge}</article>`;
     }
 
     function renderPublicProfile(profile) {
@@ -3175,10 +4013,13 @@
             ? { ...profile, ...localTitleProfile() }
             : profile;
         const title = sharedTitleHtml(titleProfile);
+        const bannerProfile = profile.id === state.account?.id
+            ? { ...profile, banner: currentBanner() }
+            : { ...profile, banner: profile.banner || showcase.equipped?.banner || 'skin-default' };
         elements.mpPublicProfileContent.innerHTML = `
-            <div class="mp-public-profile-hero">
+            <div class="mp-public-profile-hero" ${bannerAttributesFor(bannerProfile)}>
                 <img class="mp-public-profile-picture" src="${escapeHtml(picture)}" alt="${escapeHtml(profile.username)} profile picture">
-                <div><h3>${profile.clan ? `<span class="mp-clan-tag" style="color:${escapeHtml(profile.clan.tagColor)}">[${escapeHtml(profile.clan.tag)}]</span> ` : ''}${escapeHtml(profile.username)}${platformBadgeHtml(profile.platform)} <span class="mp-level-badge">Lv. ${Math.max(1, Number(profile.level) || 1)}</span></h3>${title}<div class="mp-profile-user-id"><code>${escapeHtml(profile.id)}</code><button id="mpCopyPublicUserId" class="mp-secondary" type="button">Copy User ID</button></div>${profile.clan ? `<div class="mp-profile-clan">${escapeHtml(profile.clan.name)} · Clan Level ${Number(profile.clan.level) || 1}</div>` : ''}<div class="mp-social-status ${profile.online ? 'online' : ''}">${escapeHtml(profile.presence || (profile.online ? 'Online' : 'Offline'))}</div></div>
+                <div><h3>${profile.clan ? `<span class="mp-clan-tag" style="color:${escapeHtml(profile.clan.tagColor)}">[${escapeHtml(profile.clan.tag)}]</span> ` : ''}${sharedNameHtml(profile, 'Monkey')}${platformBadgeHtml(profile.platform)} <span class="mp-level-badge">Lv. ${Math.max(1, Number(profile.level) || 1)}</span></h3>${title}<div class="mp-profile-user-id"><code>${escapeHtml(profile.id)}</code><button id="mpCopyPublicUserId" class="mp-secondary" type="button">Copy User ID</button></div>${profile.clan ? `<div class="mp-profile-clan">${escapeHtml(profile.clan.name)} · Clan Level ${Number(profile.clan.level) || 1}</div>` : ''}<div class="mp-social-status ${profile.online ? 'online' : ''}">${escapeHtml(profile.presence || (profile.online ? 'Online' : 'Offline'))}</div></div>
             </div>
             ${profile.ranked ? `<div class="mp-profile-ranked">${rankBadgeHtml(profile.ranked)}<div><strong>Season 1 Ranked</strong><span>${Number(profile.ranked.progress || 0)}% progress · ${Number(profile.ranked.peakRp || 0).toLocaleString()} peak RP</span></div></div>` : ''}
             ${profile.ranked?.history?.length ? `<div class="mp-profile-history">${profile.ranked.history.map((entry) => `<div class="mp-rank-history"><strong>Season ${entry.season} Ranked</strong><span>${escapeHtml(entry.highestRank)} · ${Number(entry.peakRp).toLocaleString()} peak RP · ${Number(entry.progress)}% rank progress</span></div>`).join('')}</div>` : ''}
@@ -3188,9 +4029,9 @@
             ].map(([label, value]) => `<div class="mp-stat"><strong>${Number(value).toLocaleString()}</strong><span>${escapeHtml(label)}</span></div>`).join('')}</div>
             ${showcaseStats.length ? `<section class="mp-profile-showcase"><h3>Game Statistics</h3><div class="mp-stats">${showcaseStats.map(([label, value]) => `<div class="mp-stat"><strong>${Number(value).toLocaleString()}</strong><span>${escapeHtml(label)}</span></div>`).join('')}</div></section>` : ''}
             <section class="mp-profile-showcase"><h3>Achievements</h3>${achievements.length ? `<div class="mp-profile-achievements">${achievements.map((name) => `<span>🏆 ${escapeHtml(name)}</span>`).join('')}</div>` : '<p class="mp-empty-state">No showcased achievements yet.</p>'}</section>
-            <div class="mp-button-row"><button id="mpProfileBadgesButton" class="mp-primary" type="button">View Badges · ${unlockedBadgeCount}/${badges.length}</button><button id="mpProfileInventoryButton" class="mp-secondary" type="button">View Inventory</button>${canAddFriend ? '<button id="mpProfileAddFriend" class="mp-primary" type="button">Add Friend</button>' : outgoingRequest ? '<button type="button" disabled>Request Sent</button>' : incomingRequest ? '<button id="mpProfileAcceptFriend" class="mp-primary" type="button">Accept Friend</button>' : ''}<button id="mpProfileLikeButton" class="${profile.likedByYou ? 'mp-primary' : 'mp-secondary'}" type="button" ${profile.canLike ? '' : 'disabled'}>${profile.likedByYou ? 'Liked' : 'Like Profile'} · ${Number(profile.likeCount || 0).toLocaleString()}</button>${canInviteToClan ? `<button id="mpProfileClanInvite" class="mp-primary" type="button" ${invitationSent ? 'disabled' : ''}>${invitationSent ? 'Invite Sent' : 'Invite to Clan'}</button>` : ''}</div>
+            <div class="mp-button-row mp-profile-action-row"><button id="mpProfileBadgesButton" class="mp-primary" type="button">View Badges · ${unlockedBadgeCount}/${badges.length}</button><button id="mpProfileInventoryButton" class="mp-secondary" type="button">View Inventory</button>${canAddFriend ? '<button id="mpProfileAddFriend" class="mp-primary" type="button">Add Friend</button>' : outgoingRequest ? '<button type="button" disabled>Request Sent</button>' : incomingRequest ? '<button id="mpProfileAcceptFriend" class="mp-primary" type="button">Accept Friend</button>' : ''}<button id="mpProfileLikeButton" class="${profile.likedByYou ? 'mp-primary' : 'mp-secondary'}" type="button" ${profile.canLike ? '' : 'disabled'}>${profile.likedByYou ? 'Liked' : 'Like Profile'} · ${Number(profile.likeCount || 0).toLocaleString()}</button>${canInviteToClan ? `<button id="mpProfileClanInvite" class="mp-primary" type="button" ${invitationSent ? 'disabled' : ''}>${invitationSent ? 'Invite Sent' : 'Invite to Clan'}</button>` : ''}</div>
             <section id="mpProfileBadges" class="mp-profile-badges mp-hidden"><div class="mp-profile-submenu-head"><div><h3>Player Badges</h3><small>${unlockedBadgeCount} of ${badges.length} unlocked · progress is synchronized across modes</small></div><button id="mpProfileBadgesClose" class="mp-secondary" type="button">Close Badges</button></div><div class="mp-badge-grid">${badges.map((badge) => { const progress = Math.max(0, Number(badge.progress) || 0); const target = Math.max(1, Number(badge.target) || 1); const percent = Math.min(100, progress / target * 100); return `<article class="mp-badge-card ${badge.unlocked ? 'unlocked' : 'locked'}"><div class="mp-badge-icon">${badge.unlocked ? escapeHtml(badgeIconSymbol(badge.icon)) : '?'}</div><div><strong>${escapeHtml(badge.name)}</strong><small>${escapeHtml(badge.category || 'Badge')}</small><p>${escapeHtml(badge.description)}</p><div class="mp-badge-progress"><i style="width:${percent}%"></i></div><span>${badge.unlocked ? 'Unlocked' : `${Math.min(progress, target).toLocaleString()} / ${target.toLocaleString()}`}</span></div></article>`; }).join('') || '<p class="mp-empty-state">Badges have not synchronized yet.</p>'}</div></section>
-            <section id="mpProfileInventory" class="mp-profile-inventory mp-hidden"><h3>Read-Only Inventory</h3>${Object.entries(inventorySections).map(([section, items]) => { const values = Array.isArray(items) ? items.map((name) => ({ name, count:1 })) : Object.entries(items || {}).filter(([, count]) => Number(count) > 0).map(([name, count]) => ({ name, count })); return values.length ? `<div><strong>${escapeHtml(section.replace(/([A-Z])/g, ' $1'))}</strong><div class="mp-inventory-grid">${values.map((item) => profileInventoryItemHtml(section, item.name, item.count)).join('')}</div></div>` : ''; }).join('') || '<p class="mp-empty-state">This player has not synced inventory details yet.</p>'}<small>Viewing only — items cannot be equipped or used from another player’s profile.</small></section>
+            <section id="mpProfileInventory" class="mp-profile-inventory mp-hidden"><h3>Read-Only Inventory</h3>${Object.entries(inventorySections).map(([section, items]) => { const values = Array.isArray(items) ? items.map((name) => ({ name, count:1 })) : Object.entries(items || {}).filter(([, count]) => Number(count) > 0).map(([name, count]) => ({ name, count })); const heading=({explosionVfx:'Explosion VFX',pipeSkins:'Pipe Skins',titleStyles:'Title Styles'})[section]||section.replace(/([A-Z])/g,' $1');return values.length ? `<div><strong>${escapeHtml(heading)}</strong><div class="mp-inventory-grid">${values.map((item) => profileInventoryItemHtml(section, item.name, item.count)).join('')}</div></div>` : ''; }).join('') || '<p class="mp-empty-state">This player has not synced inventory details yet.</p>'}<small>Viewing only — items cannot be equipped or used from another player’s profile.</small></section>
         `;
         elements.mpPublicProfileModal.classList.add('open');
         elements.mpPublicProfileModal.setAttribute('aria-hidden', 'false');
@@ -3217,6 +4058,17 @@
 
     const queuedGrantClaimIds = new Set();
     let queuedGrantClaimTimer = null;
+    const APPLIED_GRANT_BATCH_KEY = 'flappyOnlineAppliedGrantIds';
+    let activeAppliedGrantIds = null;
+
+    function readAppliedGrantIds() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(APPLIED_GRANT_BATCH_KEY) || '[]');
+            return new Set(Array.isArray(saved) ? saved.map((id) => String(id || '')).filter(Boolean) : []);
+        } catch (_) {
+            return new Set();
+        }
+    }
 
     function queueGrantClaim(grantId) {
         const id = String(grantId || '').trim();
@@ -3241,6 +4093,14 @@
 
     function applyAccountRewards(account) {
         const entitlements = account.entitlements || { skins: [], titles: [] };
+        const pendingGrants = account.pendingGrants || [];
+        const batchGrantUpdates = pendingGrants.length > 8;
+        if (batchGrantUpdates) {
+            window.__flappyBatchingCollectionUpdates = true;
+            window.__flappyCollectionBatchDirty = false;
+            window.__flappyCollectionBatchStores = new Set();
+            activeAppliedGrantIds = readAppliedGrantIds();
+        }
         const skinOwnershipKeys = new Set(
             [...(entitlements.skins || []), ...(account.unlockedSkins || [])]
                 .map((value) => String(value || '')
@@ -3251,24 +4111,25 @@
                 .filter(Boolean)
         );
         try {
-            let rewardsChanged = false;
+            let titleRewardsChanged = false;
+            let skinRewardsChanged = false;
             if (typeof titles !== 'undefined') {
                 titles.filter((title) => title.grantOnly).forEach((title) => {
                     const shouldUnlock = entitlements.titles.includes(title.name);
                     if (title.unlocked !== shouldUnlock) {
                         title.unlocked = shouldUnlock;
-                        rewardsChanged = true;
+                        titleRewardsChanged = true;
                     }
                 });
                 entitlements.titles.forEach((name) => {
                     const title = titles.find((entry) => entry.name === name);
                     if (title && !title.unlocked) {
                         title.unlocked = true;
-                        rewardsChanged = true;
+                        titleRewardsChanged = true;
                     }
                 });
-                if (rewardsChanged && typeof saveUnlockedTitles === 'function') saveUnlockedTitles();
-                if (rewardsChanged && typeof refreshTitlesMenu === 'function') refreshTitlesMenu();
+                if (titleRewardsChanged && typeof saveUnlockedTitles === 'function') saveUnlockedTitles();
+                if (titleRewardsChanged && !batchGrantUpdates && document.getElementById('titlesMenu')?.style.display === 'flex' && typeof refreshTitlesMenu === 'function') refreshTitlesMenu();
             }
             if (typeof monkeySkins !== 'undefined') {
                 const ownsSkin = (skin) => [skin.file, skin.name].some((value) => skinOwnershipKeys.has(
@@ -3282,13 +4143,13 @@
                     const shouldUnlock = ownsSkin(skin);
                     if (skin.unlocked !== shouldUnlock) {
                         skin.unlocked = shouldUnlock;
-                        rewardsChanged = true;
+                        skinRewardsChanged = true;
                     }
                 });
                 monkeySkins.forEach((skin) => {
                     if (ownsSkin(skin) && !skin.unlocked) {
                         skin.unlocked = true;
-                        rewardsChanged = true;
+                        skinRewardsChanged = true;
                     }
                 });
                 const equipped = monkeySkins.find((entry) => entry.file === currentSkin());
@@ -3297,22 +4158,62 @@
                     localStorage.setItem('selectedMonkeySkin', 'Default Monkey.png');
                     if (typeof updateLobbyMonkeyPreview === 'function') updateLobbyMonkeyPreview();
                 }
-                if (rewardsChanged && typeof saveUnlockedSkins === 'function') saveUnlockedSkins();
-                if (rewardsChanged && typeof refreshSkinMenu === 'function') refreshSkinMenu();
+                if (skinRewardsChanged && typeof saveUnlockedSkins === 'function') saveUnlockedSkins();
+                if (skinRewardsChanged && !batchGrantUpdates && document.getElementById('skinMenu')?.style.display === 'flex' && typeof refreshSkinMenu === 'function') refreshSkinMenu();
             }
-            if (rewardsChanged) {
+            if ((titleRewardsChanged || skinRewardsChanged) && !batchGrantUpdates) {
                 window.dispatchEvent(new CustomEvent('flappy-collection-changed', { detail:{ source:'account-entitlements' } }));
             }
         } catch (error) {
             console.error('Unable to apply online entitlements:', error);
         }
-
-        for (const grant of account.pendingGrants || []) applyPendingGrant(grant);
+        try {
+            for (const grant of pendingGrants) applyPendingGrant(grant);
+        } finally {
+            if (batchGrantUpdates) {
+                // Hundreds of synchronous localStorage writes were the last
+                // visible pause in Grant All. Persist one capped idempotency set
+                // after the batch instead of one separate marker per cosmetic.
+                const durableGrantIds = [...(activeAppliedGrantIds || [])].slice(-2500);
+                try {
+                    localStorage.setItem(APPLIED_GRANT_BATCH_KEY, JSON.stringify(durableGrantIds));
+                } catch (error) {
+                    console.warn('Could not persist the combined Grant All marker list.', error);
+                } finally {
+                    activeAppliedGrantIds = null;
+                }
+                window.FlappyBanners?.flushOwned?.();
+                window.FlappyEmotes?.flushOwned?.();
+                window.FlappyAuras?.flushOwned?.();
+                const batchStores = window.__flappyCollectionBatchStores;
+                if (batchStores?.has('explosion_vfx') && typeof saveUnlockedExplosionVfx === 'function') saveUnlockedExplosionVfx();
+                if (batchStores?.has('profile_background') && typeof saveUnlockedProfileBgs === 'function') saveUnlockedProfileBgs();
+                if (batchStores?.has('pipe_skin') && typeof saveUnlockedPipeThemes === 'function') saveUnlockedPipeThemes();
+                if (batchStores?.has('trail') && typeof saveUnlockedTrails === 'function') saveUnlockedTrails();
+                if (batchStores?.has('title_fx') && typeof saveUnlockedTitleFX === 'function') saveUnlockedTitleFX();
+                if (batchStores?.has('custom_emoji') && typeof saveOwnedCustomEmojis === 'function') saveOwnedCustomEmojis();
+                window.__flappyBatchingCollectionUpdates = false;
+                if (batchStores?.has('skins')) {
+                    const unlockedNames = typeof monkeySkins !== 'undefined' ? monkeySkins.filter((skin) => skin.unlocked && !skin.grantOnly).map((skin) => skin.name) : [];
+                    window.dispatchEvent(new CustomEvent('flappy-skins-changed', { detail:unlockedNames }));
+                    if (document.getElementById('skinMenu')?.style.display === 'flex' && typeof refreshSkinMenu === 'function') refreshSkinMenu();
+                }
+                if (batchStores?.has('titles') && document.getElementById('titlesMenu')?.style.display === 'flex' && typeof refreshTitlesMenu === 'function') refreshTitlesMenu();
+                delete window.__flappyCollectionBatchStores;
+                if (window.__flappyCollectionBatchDirty) {
+                    window.__flappyCollectionBatchDirty = false;
+                    if (typeof refreshInventoryMenu === 'function' && document.getElementById('inventoryMenu')?.classList.contains('open')) refreshInventoryMenu();
+                    if (typeof refreshShopGrid === 'function' && document.getElementById('shopMenu')?.classList.contains('open')) refreshShopGrid();
+                    window.dispatchEvent(new CustomEvent('flappy-collection-changed', { detail:{ source:'owner-grant-batch', count:pendingGrants.length } }));
+                }
+                showToast(`${pendingGrants.length.toLocaleString()} collection items applied.`);
+            }
+        }
     }
 
     function applyPendingGrant(grant) {
         const marker = `flappyOnlineGrant:${grant.id}`;
-        if (localStorage.getItem(marker) === 'applied') {
+        if (localStorage.getItem(marker) === 'applied' || activeAppliedGrantIds?.has(String(grant.id || ''))) {
             queueGrantClaim(grant.id);
             return;
         }
@@ -3347,7 +4248,7 @@
                 const value = Math.max(0, Number.parseInt(localStorage.getItem(key) || '0', 10) + direction * grant.amount);
                 localStorage.setItem(key, value);
                 if (typeof refreshCratesGrid === 'function') refreshCratesGrid();
-            } else if (['trail','pipe_skin','title_fx','profile_background','custom_emoji'].includes(grant.type)) {
+            } else if (['trail','pipe_skin','title_fx','profile_background','custom_emoji','aura','event_cosmetic','banner','emote'].includes(grant.type)) {
                 const applied = applyLocalCosmeticOwnership(grant, !removing);
                 if (!applied) throw new Error(`This build could not apply ${grant.label}.`);
             } else if (removing && grant.type === 'skin' && typeof monkeySkins !== 'undefined') {
@@ -3367,9 +4268,12 @@
                 if (localStorage.getItem('selectedTitle') === grant.itemId) localStorage.setItem('selectedTitle', 'None');
                 if (typeof refreshTitlesMenu === 'function') refreshTitlesMenu();
             }
-            localStorage.setItem(marker, 'applied');
+            if (window.__flappyBatchingCollectionUpdates === true && activeAppliedGrantIds) activeAppliedGrantIds.add(String(grant.id || ''));
+            else localStorage.setItem(marker, 'applied');
             queueGrantClaim(grant.id);
-            showToast(`Owner ${removing ? 'removed' : 'sent'}: ${grant.label}${grant.amount > 1 ? ` ×${grant.amount}` : ''}`);
+            if (window.__flappyBatchingCollectionUpdates !== true) {
+                showToast(`Owner ${removing ? 'removed' : 'sent'}: ${grant.label}${grant.amount > 1 ? ` ×${grant.amount}` : ''}`);
+            }
         } catch (error) {
             showToast(`Could not apply owner account change: ${error.message}`, true);
         }
@@ -3380,7 +4284,13 @@
         try { message = JSON.parse(raw); } catch (_) { return; }
         window.dispatchEvent(new CustomEvent('flappy-online-message', { detail: message }));
         if (message.serverNow) state.serverOffset = message.serverNow - Date.now();
-        if (message.type === 'server_hello') {
+        if (message.type === 'latency_pong') {
+            const sample = Math.max(0, Date.now() - Math.max(0, Number(message.clientSentAt) || Date.now()));
+            window.flappyOnlinePingMs = Number.isFinite(window.flappyOnlinePingMs)
+                ? Math.round(window.flappyOnlinePingMs * .65 + sample * .35)
+                : sample;
+            window.dispatchEvent(new CustomEvent('flappy-online-ping', { detail:{ pingMs:window.flappyOnlinePingMs } }));
+        } else if (message.type === 'server_hello') {
             state.playerId = message.playerId;
             state.serverProtocolVersion = Number(message.protocolVersion || 0);
             state.serverBuild = String(message.build || 'legacy-unidentified');
@@ -3477,10 +4387,6 @@
                 } catch (_) {}
             }
             state.authenticated = true;
-            const pendingMobileScore = Math.max(0, Math.floor(Number(localStorage.getItem(PENDING_MOBILE_SCORE_KEY)) || 0));
-            if (LOCAL_MOBILE_DEVICE && pendingMobileScore >= 25) {
-                send({ type:'claim_mobile_score_skin', score:pendingMobileScore });
-            }
             clearMultiplayerErrors();
             const offlineResetMarker = pendingOfflineResetKey(message.account.id);
             if (offlineResetMarker && localStorage.getItem(offlineResetMarker) === 'yes' && !pendingOfflineResetSubmitting) {
@@ -3551,10 +4457,12 @@
             const localPresentation = localTitleProfile();
             const serverPresentation = {
                 equippedTitle: String(message.account?.equippedTitle || 'None'),
-                titleStyle: normalizedTitleStyle(message.account?.titleStyle)
+                titleStyle: normalizedTitleStyle(message.account?.titleStyle),
+                nameStyle: normalizedNameStyle(message.account?.nameStyle)
             };
             const presentationNeedsResync = localPresentation.equippedTitle !== serverPresentation.equippedTitle
-                || JSON.stringify(localPresentation.titleStyle) !== JSON.stringify(serverPresentation.titleStyle);
+                || JSON.stringify(localPresentation.titleStyle) !== JSON.stringify(serverPresentation.titleStyle)
+                || JSON.stringify(localPresentation.nameStyle) !== JSON.stringify(serverPresentation.nameStyle);
             persistProfile(presentationNeedsResync
                 ? { ...message.account, ...localPresentation }
                 : message.account);
@@ -3566,21 +4474,16 @@
                 state.pendingProfileAction.resolve(message.account);
                 state.pendingProfileAction = null;
             }
-        } else if (message.type === 'mobile_skin_unlocked') {
-            localStorage.removeItem(PENDING_MOBILE_SCORE_KEY);
-            persistProfile(message.account);
-            showToast(message.granted
-                ? `MOBILE ONLY reward unlocked! Mobile Monkey earned with a score of ${Number(message.score) || 25}.`
-                : 'Mobile Monkey is already saved to this account.');
         } else if (message.type === 'account_title_update') {
             applyLiveTitleUpdate(message);
         } else if (message.type === 'username_changed') {
+            const usernameActuallyChanged = String(state.account?.username || '').toLocaleLowerCase() !== String(message.account?.username || '').toLocaleLowerCase();
             persistProfile(message.account);
             if (state.pendingProfileAction?.kind === 'username') {
                 state.pendingProfileAction.resolve(message.account);
                 state.pendingProfileAction = null;
             }
-            showToast(`Username updated to ${message.account.username}.`);
+            if (usernameActuallyChanged) showToast(`Username updated to ${message.account.username}.`);
         } else if (message.type === 'public_profile') {
             state.pendingSocialAction = false;
             renderPublicProfile(message.profile);
@@ -3672,18 +4575,48 @@
             const ownerMessage = document.getElementById('onlineOwnerMessage');
             if (ownerMessage) ownerMessage.textContent = message.message;
             showToast(message.message);
+        } else if (message.type.startsWith('monkey_duel_')) {
+            window.FlappyMonkeyDuel?.handleMessage?.(message);
+        } else if (message.type === 'monkey_world_emote') {
+            const action={...message};
+            if(action.profileId===state.account?.id)monkeyWorld.localEmote={id:action.id,startedAt:Number(action.startedAt)||Date.now()+state.serverOffset,until:Number(action.until)||Date.now()+state.serverOffset+6500};
+            const player=[...monkeyWorld.players.values()].find(entry=>entry.profileId===action.profileId);
+            if(player){player.emoteId=action.id;player.emoteStartedAt=Number(action.startedAt)||0;player.emoteUntil=Number(action.until)||0;player.moving=false;}
+            startWorldEmoteAudio(action);
+        } else if (message.type === 'monkey_world_emote_stop') {
+            if(message.profileId===state.account?.id)monkeyWorld.localEmote=null;
+            const player=[...monkeyWorld.players.values()].find(entry=>entry.profileId===message.profileId);
+            if(player){player.emoteId='';player.emoteStartedAt=0;player.emoteUntil=0;}
+            stopWorldEmoteAudio(message.profileId,180);
+        } else if (message.type === 'monkey_world_event_effect' || message.type === 'monkey_world_event_reward' || message.type === 'owner_monkey_world_event_action') {
+            window.FlappyWorldEvents?.handleMessage?.(message);
+            if (message.type === 'monkey_world_event_effect') playWorldEventEffectAudio(message.effect || {});
+            if (message.type === 'owner_monkey_world_event_action') {
+                const ownerMessage = document.getElementById('onlineOwnerMessage');
+                if (ownerMessage) ownerMessage.textContent = message.message;
+            }
         } else if (message.type === 'monkey_world_state') {
-            showOnlineActivity('world');
+            // Roster/world refreshes continue while the player is browsing the
+            // arcade cabinets. Do not let those routine packets tear down the
+            // Online Modes overlay and drop the player back into the world.
+            if (!(monkeyWorld.onlineHubReturn && elements.onlineModesScreen.classList.contains('open'))) {
+                showOnlineActivity('world');
+            }
             applyMonkeyWorldState(message.world);
+        } else if (message.type === 'monkey_world_voice_signal') {
+            window.dispatchEvent(new CustomEvent('flappy-monkey-world-voice-signal', { detail:message }));
         } else if (message.type === 'monkey_world_player_state') {
             if (message.player?.profileId !== state.account?.id) monkeyWorld.players.set(message.player.id, { ...message.player, receivedAt: performance.now() });
         } else if (message.type === 'left_monkey_world') {
             monkeyWorld.joined = false;
+            window.FlappyWorldEvents?.syncWorld?.(null);
             stopMonkeyWorldLoop();
             elements.mwGame.classList.add('mp-hidden');
             elements.mwJoinPanel.classList.remove('mp-hidden');
+            window.dispatchEvent(new CustomEvent('flappy-monkey-world-roster', { detail:{ joined:false, localId:state.account?.id || '', players:[] } }));
         } else if (message.type === 'monkey_world_kicked') {
             monkeyWorld.joined = false;
+            window.FlappyWorldEvents?.syncWorld?.(null);
             stopMonkeyWorldLoop();
             elements.mwGame.classList.add('mp-hidden');
             elements.mwJoinPanel.classList.remove('mp-hidden');
@@ -3694,7 +4627,7 @@
                 elements.multiplayerScreen.classList.add('open');
                 elements.multiplayerScreen.setAttribute('aria-hidden', 'false');
                 syncAccountCosmetics(true);
-                send({ type: 'join_room', code: message.code, skin: currentSkin(), equippedTitle: currentTitle(), titleStyle: currentTitleStyle() });
+                send({ type: 'join_room', code: message.code, skin: currentSkin(), aura:currentAura(), equippedTitle: currentTitle(), titleStyle: currentTitleStyle(), nameStyle: currentNameStyle() });
             }
         } else if (message.type === 'lobby_invite_sent') {
             showToast(`Lobby invite sent to ${message.target.username}.`);
@@ -3767,9 +4700,17 @@
         } else if (message.type === 'owner_grant_every_item_sent') {
             state.pendingOwnerAction = false;
             const ownerMessage = document.getElementById('onlineOwnerMessage');
-            const details = `Complete collection granted to ${message.target.username} (${Number(message.itemCount || 0).toLocaleString()} entries).`;
+            const rejected = Array.isArray(message.rejectedRewards) ? message.rejectedRewards : [];
+            const grantedCount = Number(message.itemCount || message.directGrantCount || message.collectionCount || 0);
+            const indexCount = Number(message.collectionIndexCount || 0);
+            const indexContext = indexCount > 0 && indexCount !== grantedCount
+                ? ` · ${indexCount.toLocaleString()} Collection Index entries`
+                : '';
+            const details = message.complete === false
+                ? `Collection grant to ${message.target.username} was incomplete: ${rejected.length.toLocaleString()} items were rejected. Deploy and restart the included multiplayer server, then run Grant All again.`
+                : `Complete collection granted to ${message.target.username} (${grantedCount.toLocaleString()} permanent items${indexContext}).`;
             if (ownerMessage) ownerMessage.textContent = details;
-            showToast(details);
+            showToast(details, message.complete === false);
         } else if (message.type === 'owner_progress_reset_action') {
             state.pendingOwnerAction = false;
             const requestedReset = state.pendingOwnerReset;
@@ -3981,9 +4922,9 @@
         const me = room.players.find((player) => player.id === state.playerId);
         const isHost = room.hostId === state.playerId;
         elements.mpPlayers.innerHTML = room.players.map((player) => `
-            <div class="mp-player">
+            <div class="mp-player" ${bannerAttributesFor(player.id === state.playerId ? { ...player, banner:currentBanner() } : player)}>
                 <img src="${escapeHtml(player.skin)}" alt="">
-                <div><div class="mp-player-name">${player.ranked ? `<img class="mp-inline-rank" src="${escapeHtml(rankIconSource(player.ranked))}" title="${escapeHtml(player.ranked.rank)}" alt="">` : ''}${player.clan ? `<span class="mp-clan-tag" style="color:${escapeHtml(player.clan.tagColor)}">[${escapeHtml(player.clan.tag)}]</span> ` : ''}${escapeHtml(player.name)}${platformBadgeHtml(player.platform)} <span class="mp-level-badge">Lv. ${Math.max(1, Number(player.level) || 1)}</span></div>${sharedTitleHtml(player.id === state.playerId ? localTitleProfile() : player)}<div class="mp-player-state ${player.isHost ? 'host' : player.ready ? 'ready' : ''}">${player.isHost ? 'Host' : player.ready ? 'Ready' : 'Not ready'}</div></div>
+                <div><div class="mp-player-name">${player.ranked ? `<img class="mp-inline-rank" src="${escapeHtml(rankIconSource(player.ranked))}" title="${escapeHtml(player.ranked.rank)}" alt="">` : ''}${player.clan ? `<span class="mp-clan-tag" style="color:${escapeHtml(player.clan.tagColor)}">[${escapeHtml(player.clan.tag)}]</span> ` : ''}${sharedNameHtml(player.id === state.playerId ? { ...player, ...localTitleProfile() } : player, 'Monkey')}${platformBadgeHtml(player.platform)} <span class="mp-level-badge">Lv. ${Math.max(1, Number(player.level) || 1)}</span></div>${sharedTitleHtml(player.id === state.playerId ? localTitleProfile() : player)}<div class="mp-player-state ${player.isHost ? 'host' : player.ready ? 'ready' : ''}">${player.isHost ? 'Host' : player.ready ? 'Ready' : 'Not ready'}</div></div>
                 <div style="color:${player.connected ? '#74ee9b' : '#ff8991'};font-size:10px;font-weight:900">${player.connected ? 'ONLINE' : 'LEFT'}</div>
             </div>
         `).join('');
@@ -4068,6 +5009,7 @@
         race.resultOpen = false;
         race.matchId = message.matchId;
         race.seed = courseSeedForPlayer(message.seed >>> 0, state.playerId);
+        race.weather = window.FlappyWeather?.selectForSeed?.(message.seed >>> 0) || null;
         race.settings = message.settings;
         race.localStartAt = message.startAt - state.serverOffset;
         race.lastTick = performance.now();
@@ -4226,6 +5168,7 @@
             if (!race.passed.has(pipe.index) && pipe.x + PIPE_WIDTH < MONKEY_X) {
                 race.passed.add(pipe.index);
                 race.score += 1;
+                window.FlappyMastery?.addScore?.(currentSkin(), 1, { source:'online-race' });
                 sendRaceState(true);
             }
             const overlapsX = MONKEY_X + MONKEY_SIZE > pipe.x && MONKEY_X < pipe.x + PIPE_WIDTH;
@@ -4245,6 +5188,8 @@
     }
 
     function imageForSkin(file) {
+        const animatedFrame = window.getFlappyAnimatedSkinFrame?.(file);
+        if (animatedFrame) return animatedFrame;
         if (typeof animatedSkins !== 'undefined' && animatedSkins[file]) return animatedSkins[file];
         if (!raceImages.has(file)) {
             const image = new Image();
@@ -4273,6 +5218,7 @@
     }
 
     function spawnRaceDeathExplosion(value, playerY) {
+        if (window.flappyVisualEffectsEnabled?.('explosion') === false) return;
         const type = normalizeRaceExplosionVfx(value);
         if (type === 'none') return;
         const glyphs = { bananas:['🍌'], stars:['★','✦','⭐'] }[type] || [''];
@@ -4304,6 +5250,10 @@
     }
 
     function drawRaceDeathExplosions() {
+        if (window.flappyVisualEffectsEnabled?.('explosion') === false) {
+            race.deathEffects = [];
+            return;
+        }
         const now = performance.now();
         race.deathEffects = race.deathEffects.filter((effect) => now - effect.startedAt <= 1650);
         for (const effect of race.deathEffects) {
@@ -4419,9 +5369,13 @@
         const color = playerColor(local ? state.playerId : player.id);
         raceContext.save();
         raceContext.globalAlpha = player.alive === false ? .22 : local ? 1 : .6;
+        window.FlappyAuras?.draw?.(raceContext, MONKEY_X, y, MONKEY_SIZE, race.frame, local ? currentAura() : player.aura, raceContext.globalAlpha);
         raceContext.shadowColor = color;
         raceContext.shadowBlur = local ? 16 : 11;
-        if (image.complete && image.naturalWidth) raceContext.drawImage(image, MONKEY_X, y, MONKEY_SIZE, MONKEY_SIZE);
+        const imageReady = image instanceof HTMLCanvasElement
+            ? image.width > 0 && image.height > 0
+            : image.complete && image.naturalWidth;
+        if (imageReady) raceContext.drawImage(image, MONKEY_X, y, MONKEY_SIZE, MONKEY_SIZE);
         else {
             raceContext.fillStyle = color;
             raceContext.beginPath();
@@ -4432,13 +5386,15 @@
         raceContext.globalAlpha = 1;
         const title = local ? currentTitle() : player.equippedTitle;
         const name = local ? state.account?.username || 'You' : player.name;
+        const nameStyle = local ? currentNameStyle() : normalizedNameStyle(player.nameStyle);
         const clan = local ? state.account?.clan : player.clan;
         const ranked = local ? state.account?.ranked : player.ranked;
         const displayName = `${clan ? `[${clan.tag}] ` : ''}${name}`;
         const level = local ? Math.max(1, Number(state.account?.level) || 1) : Math.max(1, Number(player.level) || 1);
         const levelText = ` · Lv.${level}`;
         raceContext.textAlign = 'left';
-        raceContext.fillStyle = color;
+        const nameHue = effectHue(nameStyle);
+        const nameSolidColor = nameStyle.rgb || nameStyle.gradient ? `hsl(${nameHue},100%,82%)` : nameStyle.color;
         raceContext.strokeStyle = '#061018';
         raceContext.lineWidth = 3;
         raceContext.font = '900 11px Arial';
@@ -4447,8 +5403,13 @@
         const levelWidth = raceContext.measureText(levelText).width;
         const labelX = MONKEY_X + MONKEY_SIZE / 2 - (nameWidth + levelWidth) / 2;
         raceContext.font = '900 11px Arial';
+        const nameColor = nameStyle.gradient ? canvasRainbowGradient(raceContext, labelX, labelX + nameWidth, nameHue) : nameSolidColor;
+        raceContext.fillStyle = nameColor;
+        raceContext.shadowColor = nameSolidColor;
+        raceContext.shadowBlur = nameStyle.glow ? 6 : 0;
         raceContext.strokeText(displayName, labelX, y - 16);
         raceContext.fillText(displayName, labelX, y - 16);
+        raceContext.shadowBlur = 0;
         if (ranked?.icon) {
             const rankImage = imageForSkin(rankIconSource(ranked));
             if (rankImage.complete && rankImage.naturalWidth) raceContext.drawImage(rankImage, labelX - 14, y - 27, 12, 12);
@@ -4459,9 +5420,10 @@
         raceContext.fillText(levelText, labelX + nameWidth, y - 16);
         if (title && title !== 'None') {
             const titleStyle = local ? currentTitleStyle() : normalizedTitleStyle(player.titleStyle);
-            const hue = (performance.now() / (titleStyle.rgbSpeed * 1000) * 360) % 360;
+            const hue = effectHue(titleStyle);
+            const titleSolidColor = titleStyle.rgb || titleStyle.gradient ? `hsl(${hue},100%,82%)` : titleStyle.color;
             let titleColor = title === 'Flappy Monkey Developer' ? '#59f4ff' : titleStyle.color;
-            if (titleStyle.rgb || titleStyle.fx === 'neonpulse') titleColor = `hsl(${hue},100%,82%)`;
+            if (titleStyle.fx === 'neonpulse') titleColor = `hsl(${hue},100%,82%)`;
             if (titleStyle.fx === 'fire') titleColor = '#fff0a8';
             if (titleStyle.fx === 'sparkle') titleColor = '#fff8c9';
             raceContext.font = '900 9px Arial';
@@ -4477,7 +5439,9 @@
                 raceContext.globalAlpha = 1;
                 titleColor = '#ffffff';
             }
-            raceContext.shadowColor = titleColor;
+            if (titleStyle.rgb) titleColor = titleSolidColor;
+            else if (titleStyle.gradient) titleColor = canvasRainbowGradient(raceContext, MONKEY_X, MONKEY_X + MONKEY_SIZE, hue);
+            raceContext.shadowColor = titleSolidColor;
             raceContext.shadowBlur = titleStyle.glow || titleStyle.fx !== 'none' ? 5 : 0;
             raceContext.fillStyle = titleColor;
             raceContext.strokeText(title, MONKEY_X + MONKEY_SIZE / 2, y - 4);
@@ -4525,6 +5489,7 @@
         raceContext.fillRect(0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y);
         raceContext.fillStyle = theme === 'snow' ? '#c0d0e0' : theme === 'volcano' ? '#8b0000' : theme === 'candy' ? '#ff69b4' : theme === 'underwater' ? '#d4b38a' : '#5C3A1F';
         raceContext.fillRect(0, GROUND_Y, WIDTH, 20);
+        if (race.started && race.alive) window.FlappyWeather?.draw?.(raceContext, WIDTH, HEIGHT, race.frame, 'back', race.weather);
     }
 
     function drawRace() {
@@ -4536,6 +5501,7 @@
         for (const player of race.remotes.values()) drawRacePlayer(player, false);
         drawRacePlayer({ id: state.playerId, alive: race.alive }, true);
         drawRaceDeathExplosions();
+        if (race.started && race.alive) window.FlappyWeather?.draw?.(raceContext, WIDTH, HEIGHT, race.frame, 'front', race.weather);
 
         raceContext.textAlign = 'left';
         raceContext.shadowColor = '#000';
@@ -4622,54 +5588,27 @@
         ].sort((a, b) => b.score - a.score || Number(b.alive) - Number(a.alive) || String(a.name).localeCompare(String(b.name)));
         elements.mpRaceStandings.innerHTML = '<h3>Live Standings · Independent Courses</h3>' + players.map((player, index) => `
             <div class="mp-standing ${player.local ? 'you' : ''} ${player.alive === false ? 'out' : ''}">
-                <span class="mp-standing-place">#${index + 1}</span><span class="mp-standing-player"><span class="mp-standing-name">${player.ranked ? `<img class="mp-inline-rank" src="${escapeHtml(rankIconSource(player.ranked))}" alt="">` : ''}${player.clan ? `<span class="mp-clan-tag" style="color:${escapeHtml(player.clan.tagColor)}">[${escapeHtml(player.clan.tag)}]</span> ` : ''}${escapeHtml(player.name)}${platformBadgeHtml(player.platform)}${player.local ? ' (You)' : ''} · Lv.${Math.max(1, Number(player.level) || 1)}</span>${sharedTitleHtml(player.local ? localTitleProfile() : player, 'mp-standing-title')}</span><span class="mp-standing-score">${Number(player.score || 0)} ${'♥'.repeat(Math.max(0, Number(player.lives) || 0))}${player.alive === false ? ' ✕' : ''}</span>
+                <span class="mp-standing-place">#${index + 1}</span><span class="mp-standing-player"><span class="mp-standing-name">${player.ranked ? `<img class="mp-inline-rank" src="${escapeHtml(rankIconSource(player.ranked))}" alt="">` : ''}${player.clan ? `<span class="mp-clan-tag" style="color:${escapeHtml(player.clan.tagColor)}">[${escapeHtml(player.clan.tag)}]</span> ` : ''}${sharedNameHtml(player.local ? { ...player, ...localTitleProfile() } : player, 'Monkey')}${platformBadgeHtml(player.platform)}${player.local ? ' (You)' : ''} · Lv.${Math.max(1, Number(player.level) || 1)}</span>${sharedTitleHtml(player.local ? localTitleProfile() : player, 'mp-standing-title')}</span><span class="mp-standing-score">${Number(player.score || 0)} ${'♥'.repeat(Math.max(0, Number(player.lives) || 0))}${player.alive === false ? ' ✕' : ''}</span>
             </div>
         `).join('');
     }
 
     function raceLoop(now) {
         if (!race.active) { race.animationFrame = null; return; }
-        if (document.hidden || window.flappyAppSuspended) {
-            race.lastTick = now;
-            race.accumulator = 0;
-            race.animationFrame = requestAnimationFrame(raceLoop);
-            return;
-        }
         if (!race.started && Date.now() >= race.localStartAt) {
             race.started = true;
             race.lastTick = now;
-            race.accumulator = 0;
             sendRaceState(true);
         }
-        const elapsed = Math.min(500, Math.max(0, now - race.lastTick));
         race.lastTick = now;
         if (race.started) {
-            if (!LOCAL_MOBILE_DEVICE) {
-                // Match the original high-refresh desktop race behavior.
-                updateRaceStep();
-                race.accumulator = 0;
-            } else {
-                race.accumulator += elapsed;
-                let updateCount = 0;
-                while (race.accumulator >= STEP && updateCount < 30) {
-                    updateRaceStep();
-                    race.accumulator -= STEP;
-                    updateCount += 1;
-                }
-                if (updateCount === 30) race.accumulator %= STEP;
-            }
+            // Offline Flappy Monkey calls update() once per animation frame.
+            // Using the same loop preserves its speed on high-refresh displays.
+            updateRaceStep();
             sendRaceState(false);
         }
-        if (!LOCAL_MOBILE_DEVICE || !race.lastDrawAt || now - race.lastDrawAt >= 30) {
-            drawRace();
-            race.lastDrawAt = now;
-        }
-        // Rebuilding the complete live-standings DOM every animation frame was
-        // more expensive than the race canvas on lower-end phones.
-        if (!LOCAL_MOBILE_DEVICE || !race.lastHudAt || now - race.lastHudAt >= 180) {
-            updateRaceHud();
-            race.lastHudAt = now;
-        }
+        drawRace();
+        updateRaceHud();
         race.animationFrame = requestAnimationFrame(raceLoop);
     }
 
@@ -4693,7 +5632,7 @@
         elements.mpResultRows.innerHTML = standings.map((entry) => `
             <div class="mp-result-row ${winnerSet.has(entry.id) ? 'winner' : ''}">
                 <div class="mp-result-place">#${entry.place}</div>
-                <div><strong>${entry.ranked ? `<img class="mp-inline-rank" src="${escapeHtml(rankIconSource(entry.ranked))}" alt="">` : ''}${entry.clan ? `<span class="mp-clan-tag" style="color:${escapeHtml(entry.clan.tagColor)}">[${escapeHtml(entry.clan.tag)}]</span> ` : ''}${escapeHtml(entry.name)}${platformBadgeHtml(entry.platform)}${entry.profileId === state.account?.id ? ' (You)' : ''} · Lv.${Math.max(1, Number(entry.level) || 1)}</strong>${sharedTitleHtml(entry.profileId === state.account?.id ? localTitleProfile() : entry)}${winnerSet.has(entry.id) ? '<div style="color:#ffe479;font-size:10px">WINNER</div>' : ''}</div>
+                <div><strong>${entry.ranked ? `<img class="mp-inline-rank" src="${escapeHtml(rankIconSource(entry.ranked))}" alt="">` : ''}${entry.clan ? `<span class="mp-clan-tag" style="color:${escapeHtml(entry.clan.tagColor)}">[${escapeHtml(entry.clan.tag)}]</span> ` : ''}${sharedNameHtml(entry.profileId === state.account?.id ? { ...entry, ...localTitleProfile() } : entry, 'Monkey')}${platformBadgeHtml(entry.platform)}${entry.profileId === state.account?.id ? ' (You)' : ''} · Lv.${Math.max(1, Number(entry.level) || 1)}</strong>${sharedTitleHtml(entry.profileId === state.account?.id ? localTitleProfile() : entry)}${winnerSet.has(entry.id) ? '<div style="color:#ffe479;font-size:10px">WINNER</div>' : ''}</div>
                 <strong>${entry.score} pts${message.ranked ? `<small class="mp-rp-change ${(rankedChanges.find((change) => change.accountId === entry.profileId)?.delta || 0) >= 0 ? 'gain' : 'loss'}">${(rankedChanges.find((change) => change.accountId === entry.profileId)?.delta || 0) >= 0 ? '+' : ''}${rankedChanges.find((change) => change.accountId === entry.profileId)?.delta || 0} RP</small>` : ''}</strong>
             </div>
         `).join('');
@@ -4799,6 +5738,11 @@
     function applyLocalCosmeticOwnership(reward, owned) {
         const type = String(reward?.type || reward?.giftType || '');
         const itemId = String(reward?.itemId || '');
+        const batching = window.__flappyBatchingCollectionUpdates === true;
+        const saveNowOrAfterBatch = (saveFunction) => {
+            if (batching) window.__flappyCollectionBatchStores?.add(type);
+            else if (typeof saveFunction === 'function') saveFunction();
+        };
         let item = null;
         if (type === 'explosion_vfx' && typeof explosionVfxOptions !== 'undefined') {
             item = explosionVfxOptions.find((entry) => entry.id === itemId);
@@ -4808,7 +5752,7 @@
                 selectedExplosionVfx = 'none';
                 localStorage.setItem('selectedExplosionVfx', 'none');
             }
-            if (typeof saveUnlockedExplosionVfx === 'function') saveUnlockedExplosionVfx();
+            saveNowOrAfterBatch(typeof saveUnlockedExplosionVfx === 'function' ? saveUnlockedExplosionVfx : null);
         } else if (type === 'profile_background' && typeof profileBackgrounds !== 'undefined') {
             item = profileBackgrounds.find((entry) => entry.id === itemId);
             if (!item || item.id === 'none') return false;
@@ -4818,7 +5762,7 @@
                 localStorage.setItem('selectedProfileBg', 'none');
                 if (typeof applyProfileTheme === 'function') applyProfileTheme();
             }
-            if (typeof saveUnlockedProfileBgs === 'function') saveUnlockedProfileBgs();
+            saveNowOrAfterBatch(typeof saveUnlockedProfileBgs === 'function' ? saveUnlockedProfileBgs : null);
         } else if (type === 'pipe_skin' && typeof pipeThemes !== 'undefined') {
             item = pipeThemes.find((entry) => entry.id === itemId);
             if (!item || item.id === 'classic') return false;
@@ -4827,7 +5771,7 @@
                 selectedPipeTheme = 'classic';
                 localStorage.setItem('selectedPipeTheme', 'classic');
             }
-            if (typeof saveUnlockedPipeThemes === 'function') saveUnlockedPipeThemes();
+            saveNowOrAfterBatch(typeof saveUnlockedPipeThemes === 'function' ? saveUnlockedPipeThemes : null);
         } else if (type === 'trail' && typeof trails !== 'undefined') {
             item = trails.find((entry) => entry.id === itemId);
             if (!item || item.id === 'none') return false;
@@ -4836,7 +5780,7 @@
                 selectedTrail = 'none';
                 localStorage.setItem('selectedTrail', 'none');
             }
-            if (typeof saveUnlockedTrails === 'function') saveUnlockedTrails();
+            saveNowOrAfterBatch(typeof saveUnlockedTrails === 'function' ? saveUnlockedTrails : null);
         } else if (type === 'title_fx' && typeof titleFXOptions !== 'undefined') {
             item = titleFXOptions.find((entry) => entry.id === itemId);
             if (!item || item.id === 'none') return false;
@@ -4845,19 +5789,32 @@
                 selectedTitleFX = 'none';
                 localStorage.setItem('selectedTitleFX', 'none');
             }
-            if (typeof saveUnlockedTitleFX === 'function') saveUnlockedTitleFX();
+            saveNowOrAfterBatch(typeof saveUnlockedTitleFX === 'function' ? saveUnlockedTitleFX : null);
         } else if (type === 'custom_emoji' && typeof ownedCustomEmojiIds !== 'undefined') {
             if (!(window.flappyCustomEmojis || []).some((entry) => entry.id === itemId)) return false;
             if (owned) ownedCustomEmojiIds.add(itemId);
             else ownedCustomEmojiIds.delete(itemId);
-            if (typeof saveOwnedCustomEmojis === 'function') saveOwnedCustomEmojis();
-            window.dispatchEvent(new CustomEvent('flappy-emojis-changed'));
+            saveNowOrAfterBatch(typeof saveOwnedCustomEmojis === 'function' ? saveOwnedCustomEmojis : null);
+            if (window.__flappyBatchingCollectionUpdates === true) window.__flappyCollectionBatchDirty = true;
+            else window.dispatchEvent(new CustomEvent('flappy-emojis-changed'));
+        } else if (type === 'aura') {
+            if (!window.FlappyAuras?.setOwned?.(itemId, owned)) return false;
+        } else if (type === 'event_cosmetic') {
+            if (!window.FlappyAuras?.setEventCosmeticOwned?.(itemId, owned)) return false;
+        } else if (type === 'banner') {
+            if (!window.FlappyBanners?.setOwned?.(itemId, owned)) return false;
+        } else if (type === 'emote') {
+            if (!window.FlappyEmotes?.setOwned?.(itemId, owned)) return false;
         } else {
             return false;
         }
-        if (typeof refreshShopGrid === 'function') refreshShopGrid();
-        if (typeof refreshInventoryMenu === 'function') refreshInventoryMenu();
-        window.dispatchEvent(new CustomEvent('flappy-collection-changed', { detail:{ category:type, itemId, owned } }));
+        if (window.__flappyBatchingCollectionUpdates === true) {
+            window.__flappyCollectionBatchDirty = true;
+        } else {
+            if (typeof refreshShopGrid === 'function' && document.getElementById('shopMenu')?.classList.contains('open')) refreshShopGrid();
+            if (typeof refreshInventoryMenu === 'function' && document.getElementById('inventoryMenu')?.classList.contains('open')) refreshInventoryMenu();
+            window.dispatchEvent(new CustomEvent('flappy-collection-changed', { detail:{ category:type, itemId, owned } }));
+        }
         return true;
     }
 
@@ -4884,7 +5841,7 @@
             const key = `flappyFreeCrateTickets:${reward.itemId}`;
             localStorage.setItem(key, Math.max(0, Number.parseInt(localStorage.getItem(key) || '0', 10) + direction * amount));
             if (typeof refreshCratesGrid === 'function') refreshCratesGrid();
-        } else if (['explosion_vfx','profile_background','pipe_skin','trail','title_fx','custom_emoji'].includes(reward.type)) {
+        } else if (['explosion_vfx','profile_background','pipe_skin','trail','title_fx','custom_emoji','aura','event_cosmetic','banner','emote'].includes(reward.type)) {
             applyLocalCosmeticOwnership(reward, direction > 0);
         } else if (reward.type === 'skin' && typeof monkeySkins !== 'undefined') {
             const skin = monkeySkins.find((entry) => entry.file === reward.itemId || entry.name === reward.itemId || entry.name === reward.label);
@@ -5056,7 +6013,7 @@
         }
         panel.innerHTML = `
             <h3>Online Account</h3>
-            <div style="color:#fff0a0;font-weight:900;margin-bottom:7px">${escapeHtml(state.account.username)}${state.account.isOwner ? ' · GAME OWNER' : ''}</div>
+            <div style="color:#fff0a0;font-weight:900;margin-bottom:7px">${sharedNameHtml({ ...state.account, ...localTitleProfile() }, 'Monkey')}${state.account.isOwner ? ' · GAME OWNER' : ''}</div>
             <div style="color:#b9d0bf;font-size:10px;font-weight:800;margin-bottom:8px">VERIFIED EMAIL: ${escapeHtml(state.account.email || 'Verified')}</div>
             <label style="display:block;color:#b9d0bf;font-size:10px;font-weight:900;margin-bottom:5px">USER ID</label>
             <div class="online-id-row"><input id="onlineUserId" type="text" readonly value="${escapeHtml(state.account.id)}"><button id="copyOnlineUserId" type="button">Copy User ID</button></div>
@@ -5081,7 +6038,7 @@
                     <select id="ownerGrantScope" title="Recipients"><option value="one">One User</option><option value="all">Every Account</option></select>
                     <input id="ownerTargetUserId" type="text" placeholder="Paste target User ID" spellcheck="false">
                     <select id="ownerGrantAction" title="Action"><option value="grant">Grant</option><option value="remove">Remove</option></select>
-                    <select id="ownerGrantType"><option value="banana_coins">Banana Coins</option><option value="xp">Monkey XP</option><option value="powerup">Power-Up</option><option value="crate_ticket">Free Crate Ticket</option><option value="skin">Monkey Skin</option><option value="title">Player Title</option><option value="profile_background">Menu Background Theme</option><option value="pipe_skin">Pipe Skin</option><option value="trail">Monkey Trail</option><option value="title_fx">Title Style</option><option value="explosion_vfx">Death / Explosion VFX</option><option value="custom_emoji">Custom Emoji</option><option value="badge">Player Badge</option></select>
+                    <select id="ownerGrantType"><option value="banana_coins">Banana Coins</option><option value="xp">Monkey XP</option><option value="powerup">Power-Up</option><option value="crate_ticket">Free Crate Ticket</option><option value="skin">Monkey Skin</option><option value="title">Player Title</option><option value="profile_background">Menu Background Theme</option><option value="pipe_skin">Pipe Skin</option><option value="trail">Monkey Trail</option><option value="title_fx">Title Style</option><option value="explosion_vfx">Death / Explosion VFX</option><option value="aura">Aura</option><option value="event_cosmetic">Event Vault Cosmetic</option><option value="banner">Player Banner</option><option value="emote">Monkey World Emote</option><option value="duel_coins">Duel Coins</option><option value="duel_xp">Duel XP</option><option value="duel_sword">Monkey Duel Sword</option><option value="duel_finisher">Monkey Duel Finisher VFX</option><option value="custom_emoji">Custom Emoji</option><option value="badge">Player Badge</option></select>
                     <select id="ownerGrantItem"></select>
                     <input id="ownerGrantAmount" type="number" min="1" max="100000" value="1" title="Amount">
                 </div>
@@ -5113,6 +6070,11 @@
                     </div>
                 </section>
                 <div class="mp-owner-live-events"><select id="ownerLiveEventSelect"><option value="banana_storm">🍌 Banana Storm · 20m</option><option value="xp_frenzy">⚡ XP Frenzy · 20m</option><option value="score_rush">🚀 Score Rush · 15m</option><option value="crate_carnival">🎁 Crate Carnival · 20m</option><option value="powerup_party">✨ Power-Up Party · 15m</option><option value="gem_rush">💎 Gem Rush · 10m</option><option value="summer_splash">🏖️ Summer Splash · 10m</option><option value="holiday_magic">🎄 Holiday Magic · 10m</option><option value="sports_mania">🏆 Sports Mania · 10m</option><option value="health_8x">❤️ 8× Health · 20m</option><option value="birthday_bash">🎂 Birthday Bash · 24h</option></select><button id="ownerStartLiveEvent" class="mp-primary" type="button">Start / Restart Selected</button><button id="ownerStopLiveEvent" class="mp-danger" type="button">Stop Selected</button><button id="ownerStopAllLiveEvents" class="mp-danger" type="button">Stop All Events</button></div>
+                <section class="mp-owner-world-events">
+                    <h3>Monkey World Events</h3>
+                    <p>Start the selected event in every active Monkey World server, or end all active world events.</p>
+                    <div class="mp-owner-live-events"><select id="ownerMonkeyWorldEventSelect"><option value="banana_rain">🍌 Banana Rain</option><option value="snowstorm">❄️ Snowstorm</option><option value="firework_festival">🎆 Firework Festival</option><option value="dance_party">🪩 Dance Party</option><option value="boss_breaker">⚔️ Boss Breaker</option><option value="pirate_invasion">🏴‍☠️ Pirate Invasion</option><option value="monkey_pvp">🗡️ Monkey PvP</option><option value="last_monkey_standing">👑 Last Monkey Standing</option></select><button id="ownerStartMonkeyWorldEvent" class="mp-primary" type="button">Start Globally</button><button id="ownerStopMonkeyWorldEvents" class="mp-danger" type="button">End All World Events</button></div>
+                </section>
                 <div class="mp-owner-announcement"><textarea id="ownerAnnouncementText" maxlength="260" placeholder="Global announcement shown over every menu and game mode..."></textarea><button id="sendOwnerAnnouncement" class="mp-primary" type="button">Send to Everyone</button></div>
                 <div id="onlineOwnerMessage" class="mp-owner-message"></div>
             </div>`;
@@ -5133,7 +6095,7 @@
             scope.disabled = true;
             targetInput.value = state.account.id;
             targetInput.disabled = true;
-            ['ownerOpenRanked','ownerGrantEveryItem','ownerResetOneProgress','ownerResetAllProgress','ownerStartLiveEvent','ownerStopLiveEvent','ownerStopAllLiveEvents','sendOwnerAnnouncement'].forEach((id) => {
+            ['ownerOpenRanked','ownerGrantEveryItem','ownerResetOneProgress','ownerResetAllProgress','ownerStartLiveEvent','ownerStopLiveEvent','ownerStopAllLiveEvents','ownerStartMonkeyWorldEvent','ownerStopMonkeyWorldEvents','sendOwnerAnnouncement'].forEach((id) => {
                 const button = document.getElementById(id);
                 if (button) { button.disabled = true; button.title = 'This owner action changes server or other-player data and requires an online connection.'; }
             });
@@ -5188,10 +6150,25 @@
         document.getElementById('ownerStopAllLiveEvents')?.addEventListener('click', async () => {
             if (await gameConfirm('Stop every active live event now?', { title:'Stop All Live Events?', confirmLabel:'Stop All', danger:true })) send({ type: 'stop_live_event', stopAll:true });
         });
+        document.getElementById('ownerStartMonkeyWorldEvent')?.addEventListener('click', async () => {
+            if (!state.serverCapabilities.includes('monkey_world_events_v1')) {
+                showToast(`Monkey World event controls require the current multiplayer server. Connected build: ${state.serverBuild || 'unknown'}. Deploy and restart the included multiplayer-server.js first.`, true);
+                return;
+            }
+            const eventId = document.getElementById('ownerMonkeyWorldEventSelect')?.value;
+            if (await gameConfirm('Start this Monkey World event in every active world?', { title:'Start World Event Globally?', confirmLabel:'Start Event' })) send({ type:'start_monkey_world_event', eventId, global:true });
+        });
+        document.getElementById('ownerStopMonkeyWorldEvents')?.addEventListener('click', async () => {
+            if (!state.serverCapabilities.includes('monkey_world_events_v1')) {
+                showToast(`Monkey World event controls require the current multiplayer server. Connected build: ${state.serverBuild || 'unknown'}. Deploy and restart the included multiplayer-server.js first.`, true);
+                return;
+            }
+            if (await gameConfirm('End every active Monkey World event now?', { title:'End All World Events?', confirmLabel:'End Events', danger:true })) send({ type:'stop_monkey_world_event', global:true });
+        });
         const refresh = () => {
             const selected = type.value;
             item.innerHTML = '';
-            amount.max = selected === 'xp' ? '1000000000' : '100000';
+            amount.max = ['xp','duel_xp','duel_coins'].includes(selected) ? '1000000000' : '100000';
             if (selected === 'powerup') {
                 item.innerHTML = '<option value="extraLifeTokens">Extra Life Token</option><option value="coinDoublerTickets">Banana Doubler</option><option value="scoreBoosterTickets">Score Booster</option><option value="xpBoostTokens">2× Monkey XP Token</option><option value="crateLuckBoostTokens">Crate Luck Boost</option><option value="reviveTokens">Revive Token</option>';
             } else if (selected === 'explosion_vfx' && typeof explosionVfxOptions !== 'undefined') {
@@ -5206,6 +6183,24 @@
                 item.innerHTML = trails.filter(entry => entry.id !== 'none').map(entry => `<option value="${escapeHtml(entry.id)}" data-label="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</option>`).join('');
             } else if (selected === 'title_fx' && typeof titleFXOptions !== 'undefined') {
                 item.innerHTML = titleFXOptions.filter(entry => entry.id !== 'none').map(entry => `<option value="${escapeHtml(entry.id)}" data-label="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</option>`).join('');
+            } else if (selected === 'aura') {
+                item.innerHTML = (window.FlappyAuras?.definitions || []).map(entry => `<option value="${escapeHtml(entry.id)}" data-label="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}${entry.mastery ? ' · Mastery Exclusive' : ''}</option>`).join('');
+            } else if (selected === 'event_cosmetic') {
+                item.innerHTML = (window.FlappyAuras?.eventCosmetics || []).map(entry => `<option value="${escapeHtml(entry.id)}" data-label="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</option>`).join('');
+            } else if (selected === 'banner') {
+                item.innerHTML = (window.FlappyBanners?.definitions || []).map(entry => `<option value="${escapeHtml(entry.id)}" data-label="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}${entry.skinUnlock ? ' · Skin Linked' : ' · Banana Market'}</option>`).join('');
+            } else if (selected === 'emote') {
+                item.innerHTML = (window.FlappyEmotes?.definitions || []).map(entry => `<option value="${escapeHtml(entry.id)}" data-label="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</option>`).join('');
+            } else if (selected === 'duel_sword') {
+                const entries = window.FlappyMonkeyDuel?.state?.catalog?.swords?.length ? window.FlappyMonkeyDuel.state.catalog.swords : [
+                    ['wood','Wood Sword'],['banana','Banana Sword'],['candy','Candy Sword'],['fire','Fire Sword'],['ice','Ice Sword'],['galaxy','Galaxy Sword'],['stitched','Stitched Sword'],['lightning','Lightning Sword'],['rainbow','Rainbow Sword'],['crystal','Crystal Sword']
+                ].map(([id,name]) => ({ id,name }));
+                item.innerHTML = entries.filter(entry => entry.id !== 'wood').map(entry => `<option value="${escapeHtml(entry.id)}" data-label="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</option>`).join('');
+            } else if (selected === 'duel_finisher') {
+                const entries = window.FlappyMonkeyDuel?.state?.catalog?.finishers?.length ? window.FlappyMonkeyDuel.state.catalog.finishers : [
+                    ['banana-burst','Golden Banana Burst'],['lightning-cage','Lightning Cage'],['cosmic-implosion','Cosmic Implosion'],['frost-shatter','Frost Shatter'],['dragon-flame','Dragon Flame Spiral'],['pixel-dissolve','Neon Pixel Dissolve'],['crown-shockwave','Royal Crown Shockwave']
+                ].map(([id,name]) => ({ id,name }));
+                item.innerHTML = entries.filter(entry => entry.id !== 'banana-burst').map(entry => `<option value="${escapeHtml(entry.id)}" data-label="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</option>`).join('');
             } else if (selected === 'custom_emoji') {
                 item.innerHTML = (window.flappyCustomEmojis || []).map(entry => `<option value="${escapeHtml(entry.id)}" data-label="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</option>`).join('');
             } else if (selected === 'skin' && typeof monkeySkins !== 'undefined') {
@@ -5217,10 +6212,11 @@
             } else if (selected === 'badge') {
                 item.innerHTML = (state.account?.badges || []).map((badge) => `<option value="${escapeHtml(badge.id)}">${escapeHtml(badge.name)}</option>`).join('');
             } else {
-                item.innerHTML = `<option value="">${selected === 'xp' ? 'Monkey XP' : 'Banana Coins'}</option>`;
+                const labels = { xp:'Monkey XP', banana_coins:'Banana Coins', duel_xp:'Duel XP', duel_coins:'Duel Coins' };
+                item.innerHTML = `<option value="">${labels[selected] || 'Item'}</option>`;
             }
-            item.disabled = selected === 'banana_coins' || selected === 'xp';
-            amount.style.display = ['skin','title','badge','explosion_vfx','profile_background','pipe_skin','trail','title_fx','custom_emoji'].includes(selected) ? 'none' : '';
+            item.disabled = ['banana_coins','xp','duel_coins','duel_xp'].includes(selected);
+            amount.style.display = ['skin','title','badge','explosion_vfx','profile_background','pipe_skin','trail','title_fx','custom_emoji','aura','event_cosmetic','banner','emote','duel_sword','duel_finisher'].includes(selected) ? 'none' : '';
             const global = !offlineOwner && scope.value === 'all';
             targetInput.disabled = offlineOwner || global;
             targetInput.placeholder = global ? 'All existing accounts' : 'Paste target User ID';
@@ -5272,6 +6268,12 @@
                 ownerMessage.textContent = 'Paste the one target User ID first.';
                 return;
             }
+            if (!state.serverCapabilities.includes('owner_grant_catalog_v3')) {
+                const message = `Grant All requires the current multiplayer server. Connected build: ${state.serverBuild || 'unknown'}. Deploy and restart multiplayer-server.js, reconnect, then try again.`;
+                ownerMessage.textContent = message;
+                showToast(message, true);
+                return;
+            }
             const confirmation = await gamePrompt(
                 `Grant every permanent skin, title, badge, Banana Market cosmetic, and custom emoji to:\n${targetUserId}`,
                 '',
@@ -5297,11 +6299,24 @@
             if (typeof profileBackgrounds !== 'undefined') profileBackgrounds.filter((entry) => entry.id !== 'none').forEach((entry) => rewards.push({ type:'profile_background', itemId:entry.id, label:entry.name }));
             if (typeof explosionVfxOptions !== 'undefined') explosionVfxOptions.filter((entry) => entry.id !== 'none').forEach((entry) => rewards.push({ type:'explosion_vfx', itemId:entry.id, label:entry.name }));
             (window.flappyCustomEmojis || []).forEach((entry) => rewards.push({ type:'custom_emoji', itemId:entry.id, label:entry.name }));
+            (window.FlappyAuras?.definitions || []).forEach((entry) => rewards.push({ type:'aura', itemId:entry.id, label:entry.name }));
+            (window.FlappyAuras?.eventCosmetics || []).forEach((entry) => rewards.push({ type:'event_cosmetic', itemId:entry.id, label:entry.name }));
+            (window.FlappyBanners?.definitions || []).forEach((entry) => rewards.push({ type:'banner', itemId:entry.id, label:entry.name }));
+            (window.FlappyEmotes?.definitions || []).forEach((entry) => rewards.push({ type:'emote', itemId:entry.id, label:entry.name }));
+            const duelSwords = window.FlappyMonkeyDuel?.state?.catalog?.swords || [
+                ['banana','Banana Sword'],['candy','Candy Sword'],['fire','Fire Sword'],['ice','Ice Sword'],['galaxy','Galaxy Sword'],['stitched','Stitched Sword'],['lightning','Lightning Sword'],['rainbow','Rainbow Sword'],['crystal','Crystal Sword']
+            ].map(([id,name]) => ({ id,name }));
+            const duelFinishers = window.FlappyMonkeyDuel?.state?.catalog?.finishers || [
+                ['lightning-cage','Lightning Cage'],['cosmic-implosion','Cosmic Implosion'],['frost-shatter','Frost Shatter'],['dragon-flame','Dragon Flame Spiral'],['pixel-dissolve','Neon Pixel Dissolve'],['crown-shockwave','Royal Crown Shockwave']
+            ].map(([id,name]) => ({ id,name }));
+            duelSwords.filter(entry => entry.id !== 'wood').forEach((entry) => rewards.push({ type:'duel_sword', itemId:entry.id, label:entry.name }));
+            duelFinishers.filter(entry => entry.id !== 'banana-burst').forEach((entry) => rewards.push({ type:'duel_finisher', itemId:entry.id, label:entry.name }));
             state.pendingOwnerAction = true;
             ownerMessage.textContent = 'Granting the complete collection…';
             send({
                 type:'owner_grant_every_item',
                 targetUserId,
+                collectionCount:Number(window.getFlappyCollectionIndexSummary?.().total || 0),
                 skins:typeof monkeySkins !== 'undefined' ? monkeySkins.map((entry) => ({ file:entry.file, name:entry.name })) : [],
                 titles:typeof titles !== 'undefined' ? titles.filter((entry) => entry.name !== 'None').map((entry) => entry.name) : [],
                 badgeIds:(state.account?.badges || []).map((badge) => badge.id),
@@ -5352,8 +6367,6 @@
         }));
     }
     const DEFENSE_TOWERS = Object.freeze(Object.fromEntries(OFFLINE_DEFENSE_CATALOG.order.map((id) => [id, { ...OFFLINE_DEFENSE_CATALOG.towers[id] }])));
-    const onlineDefenseTowerImageSource = (id, config) => OFFLINE_DEFENSE_CATALOG.towerImageSource?.(id) || config?.file || 'Default Monkey.png';
-    const onlineDefensePestImageSource = (pest) => OFFLINE_DEFENSE_CATALOG.pestImageSource?.(pest?.id) || pest?.file || 'Zombie Monkey.png';
     function onlineDefenseTowerStats(placement) {
         const base = DEFENSE_TOWERS[placement?.towerType] || DEFENSE_TOWERS.torn;
         const tiers = Math.max(0, (Number(placement?.level) || 1) - 1);
@@ -5449,28 +6462,8 @@
     onlineDefense.selectedTower = OFFLINE_DEFENSE_CATALOG.order[0] || 'torn';
     elements.odTowerDeck.innerHTML = OFFLINE_DEFENSE_CATALOG.order.map((id, index) => {
         const tower = DEFENSE_TOWERS[id];
-        return `<button class="od-tower ${index === 0 ? 'active' : ''}" data-od-tower="${escapeHtml(id)}" type="button"><img data-menu-src="${escapeHtml(tower.file)}" alt="" decoding="async"><span><strong>${escapeHtml(tower.name)}</strong><small>${Number(tower.cost)} Bananas · Defense Power: ${escapeHtml(tower.defenseTier || tower.rarity || 'Standard')} · ${escapeHtml(tower.hint)}</small></span></button>`;
+        return `<button class="od-tower ${index === 0 ? 'active' : ''}" data-od-tower="${escapeHtml(id)}" type="button"><img src="${escapeHtml(tower.file)}" alt=""><span><strong>${escapeHtml(tower.name)}</strong><small>${Number(tower.cost)} Bananas · Defense Power: ${escapeHtml(tower.defenseTier || tower.rarity || 'Standard')} · ${escapeHtml(tower.hint)}</small></span></button>`;
     }).join('');
-
-    function hydrateOnlineDefenseDeck() {
-        const images = [...elements.odTowerDeck.querySelectorAll('img[data-menu-src]')];
-        const load = (image) => {
-            if (!image?.dataset.menuSrc) return;
-            image.src = image.dataset.menuSrc;
-            delete image.dataset.menuSrc;
-        };
-        if (!('IntersectionObserver' in window)) {
-            images.slice(0, matchMedia('(max-width:760px), (pointer:coarse)').matches ? 8 : 18).forEach(load);
-            return;
-        }
-        const observer = new IntersectionObserver((entries) => entries.forEach((entry) => {
-            if (!entry.isIntersecting) return;
-            load(entry.target);
-            observer.unobserve(entry.target);
-        }), { root:elements.odTowerDeck, rootMargin:'360px 0px' });
-        images.forEach((image) => observer.observe(image));
-    }
-    hydrateOnlineDefenseDeck();
 
     function defenseMe() {
         return onlineDefense.room?.players?.find((player) => player.id === state.playerId) || null;
@@ -5491,7 +6484,7 @@
             ? `<div class="od-rank-summary"><img src="${escapeHtml(rankIconSource(ranked))}" alt=""><div><strong>${escapeHtml(ranked.rank || 'Unranked')}</strong><span>${Number(ranked.rp || 0).toLocaleString()} Online RP${ranked.nextRank ? ` - Next: ${escapeHtml(ranked.nextRank)}` : ' - Maximum rank'}</span></div></div><div class="od-rank-track"><i style="width:${Math.max(0, Math.min(100, Number(ranked.progress) || 0))}%"></i></div>`
             : '<strong>Shared Online Rank</strong><span>Play any public ranked mode to enter the leaderboard.</span>';
         elements.odLeaderboard.innerHTML = onlineDefense.leaderboard.length
-            ? onlineDefense.leaderboard.map((entry) => `<div class="od-leaderboard-row"><strong>#${Number(entry.place)}</strong><img src="${escapeHtml(rankIconSource(entry))}" alt=""><b>${escapeHtml(entry.username)}</b><span>${escapeHtml(entry.rank)}</span><strong>${Number(entry.rp || 0).toLocaleString()} RP</strong></div>`).join('')
+            ? onlineDefense.leaderboard.map((entry) => `<div class="od-leaderboard-row" ${bannerAttributesFor(entry)}><strong>#${Number(entry.place)}</strong><img src="${escapeHtml(rankIconSource(entry))}" alt=""><b>${sharedNameHtml(entry, 'Monkey')}</b><span>${escapeHtml(entry.rank)}</span><strong>${Number(entry.rp || 0).toLocaleString()} RP</strong></div>`).join('')
             : '<div class="od-empty">No ranked defenders yet. The first public match will start the leaderboard.</div>';
     }
 
@@ -5501,7 +6494,7 @@
         elements.odLobbyBadge.textContent = `${room.ranked ? 'RANKED' : 'PRIVATE'} ${room.mode === 'coop' ? 'CO-OP' : 'VERSUS'}`;
         elements.odRoomCode.textContent = room.code || 'PUBLIC';
         elements.odCopyCode.classList.toggle('mp-hidden', !room.code);
-        elements.odLobbyPlayers.innerHTML = room.players.map((player) => `<div class="od-lobby-player"><img src="${escapeHtml(player.skin || 'Default Monkey.png')}" alt=""><div><strong>${escapeHtml(player.username)}${platformBadgeHtml(player.platform)}</strong>${sharedTitleHtml(player.id === state.playerId ? localTitleProfile() : player)}<span>Level ${Number(player.level || 1)}${player.id === room.hostId ? ' - Host' : ''}</span></div></div>`).join('') + (room.players.length < 2 ? '<div class="od-lobby-player"><div><strong>Waiting for a friend...</strong><span>Share the room code above.</span></div></div>' : '');
+        elements.odLobbyPlayers.innerHTML = room.players.map((player) => `<div class="od-lobby-player" ${bannerAttributesFor(player.id === state.playerId ? { ...player, banner:currentBanner() } : player)}><img src="${escapeHtml(player.skin || 'Default Monkey.png')}" alt=""><div><strong>${sharedNameHtml(player.id === state.playerId ? { ...player, ...localTitleProfile() } : player, 'Monkey')}${platformBadgeHtml(player.platform)}</strong>${sharedTitleHtml(player.id === state.playerId ? localTitleProfile() : player)}<span>Level ${Number(player.level || 1)}${player.id === room.hostId ? ' - Host' : ''}</span></div></div>`).join('') + (room.players.length < 2 ? '<div class="od-lobby-player"><div><strong>Waiting for a friend...</strong><span>Share the room code above.</span></div></div>' : '');
         const host = room.hostId === state.playerId;
         elements.odStartPrivate.classList.toggle('mp-hidden', !host);
         elements.odStartPrivate.disabled = room.players.length < 2;
@@ -5521,7 +6514,7 @@
         elements.odKills.textContent = onlineDefense.kills.toLocaleString();
         elements.odMarketReward.textContent = `+${Math.max(0, Math.floor(onlineDefense.bananaRewardsEarned)).toLocaleString()}`;
         elements.odScore.textContent = onlineDefense.score.toLocaleString();
-        elements.odOpponentStats.innerHTML = (room?.players || []).map((player) => `<div class="od-player-stat"><strong>${player.id === state.playerId ? 'You' : escapeHtml(player.username)}${platformBadgeHtml(player.platform)}</strong>${sharedTitleHtml(player.id === state.playerId ? localTitleProfile() : player)}<span>Wave ${Number(player.wave || 0)} - ${Number(player.lives || 0)} lives - ${Number(player.score || 0).toLocaleString()} score</span></div>`).join('');
+        elements.odOpponentStats.innerHTML = (room?.players || []).map((player) => `<div class="od-player-stat"><strong>${player.id === state.playerId ? sharedNameHtml({ ...player, ...localTitleProfile(), username:'You' }, 'You') : sharedNameHtml(player, 'Monkey')}${platformBadgeHtml(player.platform)}</strong>${sharedTitleHtml(player.id === state.playerId ? localTitleProfile() : player)}<span>Wave ${Number(player.wave || 0)} - ${Number(player.lives || 0)} lives - ${Number(player.score || 0).toLocaleString()} score</span></div>`).join('');
         const placements = room?.placements || [];
         const selected = placements.find((tower) => tower.id === onlineDefense.selectedPlacementId);
         const selectedConfig = selected ? DEFENSE_TOWERS[selected.towerType] : null;
@@ -6053,7 +7046,7 @@
             ctx.globalAlpha = .9; ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.setLineDash([10, 7]); ctx.stroke(); ctx.setLineDash([]);
             ctx.globalAlpha = .34; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(hover.x, hover.y, 32, 0, Math.PI * 2); ctx.fill();
             ctx.globalAlpha = 1; ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(hover.x, hover.y, 32, 0, Math.PI * 2); ctx.stroke();
-            const preview = config ? imageForSkin(onlineDefenseTowerImageSource(onlineDefense.selectedTower, config)) : null;
+            const preview = config ? imageForSkin(config.file) : null;
             if (preview?.complete && preview.naturalWidth) { ctx.globalAlpha = .8; ctx.drawImage(preview, hover.x - 27, hover.y - 27, 54, 54); }
             ctx.globalAlpha = 1; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.font = '900 14px Arial'; ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(4,30,18,.9)'; ctx.strokeText(label, hover.x, hover.y - 36); ctx.fillStyle = color; ctx.fillText(label, hover.x, hover.y - 36);
             ctx.restore();
@@ -6065,7 +7058,7 @@
             const level = Math.max(1, Number(tower.level) || 1);
             if (selected) { ctx.globalAlpha = .16; ctx.fillStyle = config.color; ctx.beginPath(); ctx.arc(tower.x, tower.y, config.passive === 'weather-luck' ? 48 : stats.range, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; }
             ctx.fillStyle = '#2a241b'; ctx.beginPath(); ctx.arc(tower.x, tower.y, 22, 0, Math.PI * 2); ctx.fill();
-            const image = imageForSkin(onlineDefenseTowerImageSource(tower.towerType, config));
+            const image = imageForSkin(config.file);
             if (image.complete && image.naturalWidth) ctx.drawImage(image, tower.x - 29, tower.y - 29, 58, 58);
             else { ctx.fillStyle = config.color; ctx.beginPath(); ctx.arc(tower.x, tower.y, 23, 0, Math.PI * 2); ctx.fill(); }
             if (tower.towerType === 'christmastree') {
@@ -6130,7 +7123,7 @@
             ctx.shadowBlur = enemy.boss ? 18 : enemy.treasure ? 13 : 0;
             ctx.fillStyle = enemy.jamUntil > now ? '#ffad4d' : enemy.poisonUntil > now ? '#85e35e' : enemy.slowUntil > now ? '#7bdcff' : enemy.boss ? '#8d3154' : enemy.treasure ? '#ffd84f' : (enemy.pest?.color || '#c64758');
             ctx.beginPath(); ctx.arc(0, 0, radius + 2, 0, Math.PI * 2); ctx.fill();
-            const pestImage = imageForSkin(onlineDefensePestImageSource(enemy.pest));
+            const pestImage = imageForSkin(enemy.pest?.file || 'Zombie Monkey.png');
             if (pestImage.complete && pestImage.naturalWidth) { const size = radius * 2.55; ctx.drawImage(pestImage, -size / 2, -size / 2, size, size); }
             if (enemy.boss) {
                 ctx.fillStyle = '#ffe16a';
@@ -6830,26 +7823,14 @@
 
     function defenseFrame() {
         if (!onlineDefense.active) return;
-        if (document.hidden || window.flappyAppSuspended) {
-            onlineDefense.lastFrameAt = Date.now();
-            onlineDefense.lastSimulationAt = Date.now();
-            onlineDefense.animationFrame = requestAnimationFrame(defenseFrame);
-            return;
-        }
         const now = Date.now();
         if (!onlineDefense.readySent && now >= onlineDefense.localStartAt - 450) {
             onlineDefense.readySent = true;
             send({ type: 'defense_ready' });
         }
         advanceDefenseSimulation(now);
-        if (!LOCAL_MOBILE_DEVICE || !onlineDefense.lastDrawAt || now - onlineDefense.lastDrawAt >= 30) {
-            drawDefenseScene(now);
-            onlineDefense.lastDrawAt = now;
-        }
-        if (!LOCAL_MOBILE_DEVICE || !onlineDefense.lastHudAt || now - onlineDefense.lastHudAt >= 140) {
-            updateDefenseHud();
-            onlineDefense.lastHudAt = now;
-        }
+        drawDefenseScene(now);
+        updateDefenseHud();
         reportDefenseProgress();
         onlineDefense.lastFrameAt = now;
         onlineDefense.animationFrame = requestAnimationFrame(defenseFrame);
@@ -6920,10 +7901,7 @@
         if (onlineDefense.animationFrame) cancelAnimationFrame(onlineDefense.animationFrame);
         if (onlineDefense.simulationTimer) clearInterval(onlineDefense.simulationTimer);
         onlineDefense.simulationTimer = setInterval(() => {
-            if (!onlineDefense.active || document.hidden || window.flappyAppSuspended) {
-                onlineDefense.lastSimulationAt = Date.now();
-                return;
-            }
+            if (!onlineDefense.active) return;
             advanceDefenseSimulation(Date.now());
             reportDefenseProgress();
         }, 50);
@@ -6957,7 +7935,63 @@
         }
     }
 
+    async function prepareClanBrandingImage(file, kind) {
+        const supported = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+        if (!supported.includes(file.type)) throw new Error('Choose a PNG, JPEG, WebP, or GIF file.');
+        if (file.size > 10 * 1024 * 1024) throw new Error('Choose an image no larger than 10 MB.');
+        if (file.type === 'image/gif') {
+            // Leave comfortable room for the data URL and the rest of the
+            // WebSocket message. This also keeps clan snapshots inexpensive.
+            if (file.size > 220 * 1024) throw new Error('Animated GIFs must be 220 KB or smaller. Still images are compressed automatically.');
+            return readFileAsDataUrl(file);
+        }
+        const objectUrl = URL.createObjectURL(file);
+        try {
+            const image = new Image();
+            image.decoding = 'async';
+            await new Promise((resolve, reject) => {
+                image.onload = resolve;
+                image.onerror = () => reject(new Error('That clan image could not be decoded.'));
+                image.src = objectUrl;
+            });
+            const maxDimension = kind === 'icon' ? 512 : 1400;
+            let scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d', { alpha:true });
+            let best = '';
+            for (let resize = 0; resize < 6; resize += 1) {
+                canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+                canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+                context.clearRect(0, 0, canvas.width, canvas.height);
+                context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                for (const quality of [.86, .76, .66, .56, .46]) {
+                    const candidate = canvas.toDataURL('image/webp', quality);
+                    best = candidate;
+                    if (decodedDataUrlBytes(candidate) <= 190 * 1024) return candidate;
+                }
+                scale *= .74;
+            }
+            if (best && decodedDataUrlBytes(best) <= 210 * 1024) return best;
+            throw new Error('That clan image could not be compressed enough. Try a smaller image.');
+        } finally {
+            URL.revokeObjectURL(objectUrl);
+        }
+    }
+
+    function returnToOnlineHub() {
+        monkeyWorld.onlineHubReturn = false;
+        elements.monkeyWorldScreen.classList.remove('menu-underlay');
+        openOnlineHub();
+    }
+
+    window.FlappyOnlineModes = Object.assign(window.FlappyOnlineModes || {}, {
+        open: returnToOnlineHub,
+        openSocial: openSharedSocial
+    });
+
     function openOnlineHubFromWorld() {
+        clearTimeout(monkeyWorld.menuReturnTimer);
+        monkeyWorld.menuReturnTimer = null;
         closeWorldBuilding();
         monkeyWorld.onlineHubReturn = true;
         monkeyWorld.pausedForMenu = true;
@@ -7155,8 +8189,8 @@
     elements.onlineConsentModal.addEventListener('click', (event) => {
         if (event.target === elements.onlineConsentModal) finishOnlineConsent(false);
     });
-    elements.mpCreateRoomBtn.addEventListener('click', () => { elements.mpHomeError.textContent = ''; syncAccountCosmetics(); send({ type: 'create_room', skin: currentSkin(), equippedTitle: currentTitle(), titleStyle: currentTitleStyle(), settings: { victory: 'last_alive', targetScore: 25, durationSeconds: 120, lives: 1, pipeGap: 'normal', movingPipes: false, friendlyPractice: false } }); });
-    elements.mpJoinRoomBtn.addEventListener('click', () => { elements.mpHomeError.textContent = ''; syncAccountCosmetics(); send({ type: 'join_room', code: elements.mpJoinCode.value, skin: currentSkin(), equippedTitle: currentTitle(), titleStyle: currentTitleStyle() }); });
+    elements.mpCreateRoomBtn.addEventListener('click', () => { elements.mpHomeError.textContent = ''; syncAccountCosmetics(); send({ type: 'create_room', skin: currentSkin(), aura:currentAura(), equippedTitle: currentTitle(), titleStyle: currentTitleStyle(), nameStyle: currentNameStyle(), settings: { victory: 'last_alive', targetScore: 25, durationSeconds: 120, lives: 1, pipeGap: 'normal', movingPipes: false, friendlyPractice: false } }); });
+    elements.mpJoinRoomBtn.addEventListener('click', () => { elements.mpHomeError.textContent = ''; syncAccountCosmetics(); send({ type: 'join_room', code: elements.mpJoinCode.value, skin: currentSkin(), aura:currentAura(), equippedTitle: currentTitle(), titleStyle: currentTitleStyle(), nameStyle: currentNameStyle() }); });
     elements.mpJoinCode.addEventListener('input', () => { elements.mpJoinCode.value = elements.mpJoinCode.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5); });
     elements.mpCopyRoomBtn.addEventListener('click', () => state.room && copyText(state.room.code, elements.mpCopyRoomBtn));
     elements.mpVictorySelect.addEventListener('change', sendSettings);
@@ -7204,6 +8238,7 @@
         if (monkeyWorld.onlineHubReturn) { closeOnlineHub(); return; }
         closeOnlineHub({ restoreWorld:false }); openMonkeyWorld();
     });
+    elements.onlineHubDuel.addEventListener('click', () => { const fromWorld = monkeyWorld.onlineHubReturn; monkeyWorld.onlineHubReturn = false; closeOnlineHub({ restoreWorld:false }); if (fromWorld) closeMonkeyWorld(); window.FlappyMonkeyDuel?.open?.(); });
     elements.onlineHubDefense.addEventListener('click', () => { const fromWorld = monkeyWorld.onlineHubReturn; monkeyWorld.onlineHubReturn = false; closeOnlineHub({ restoreWorld:false }); if (fromWorld) closeMonkeyWorld(); openOnlineDefense(); });
     elements.onlineHubRace.addEventListener('click', () => { const fromWorld = monkeyWorld.onlineHubReturn; monkeyWorld.onlineHubReturn = false; closeOnlineHub({ restoreWorld:false }); if (fromWorld) closeMonkeyWorld(); openMultiplayer(); });
     elements.odLeave.addEventListener('click', async () => {
@@ -7212,6 +8247,7 @@
             { title:'Leave Active Match?', confirmLabel:'Leave Match', cancelLabel:'Keep Playing', danger:true }
         )) return;
         closeOnlineDefense();
+        returnToOnlineHub();
     });
     elements.odSocial.addEventListener('click', openSharedSocial);
     elements.odQueueVersus.addEventListener('click', () => { elements.odMenuError.textContent = ''; send({ type: 'defense_queue', mode: 'versus' }); });
@@ -7328,12 +8364,14 @@
     });
     elements.mwLeave.addEventListener('click', async () => {
         if (monkeyWorld.joined && !await gameConfirm(
-            'Leave Monkey World and return to the game lobby?',
+            'Leave Monkey World and return to Online Modes?',
             { title:'Leave Monkey World?', confirmLabel:'Leave World', cancelLabel:'Stay Here' }
         )) return;
         closeMonkeyWorld();
+        returnToOnlineHub();
     });
     elements.mwSocial.addEventListener('click', openSharedSocial);
+    elements.mwSettings.addEventListener('click', () => document.getElementById('quickSettingsBtn')?.click());
     elements.mpCloseSocialCenter.addEventListener('click', closeSharedSocial);
     elements.mwJoinPublic.addEventListener('click', () => { elements.mwJoinError.textContent = ''; send({ type: 'join_public_monkey_world' }); });
     elements.mwCreatePrivate.addEventListener('click', () => { elements.mwJoinError.textContent = ''; send({ type: 'create_private_monkey_world' }); });
@@ -7383,7 +8421,7 @@
     ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((eventName) => {
         elements.mwTouchStick.addEventListener(eventName, resetWorldTouchStick);
     });
-    elements.mwInteract.addEventListener('click', () => openWorldBuilding(monkeyWorld.nearbyBuilding));
+    elements.mwInteract.addEventListener('click', activateWorldInteraction);
     elements.mwCloseBuilding.addEventListener('click', closeWorldBuilding);
     elements.mwBuildingModal.addEventListener('click', (event) => { if (event.target === elements.mwBuildingModal) closeWorldBuilding(); });
     elements.mwBuildingContent.addEventListener('click', (event) => {
@@ -7396,6 +8434,7 @@
         }
         const wardrobe = event.target.closest('[data-world-wardrobe]');
         if (wardrobe) { pauseWorldForExistingMenu(wardrobe.dataset.worldWardrobe === 'skins' ? 'skinBtn' : 'titlesBtn'); return; }
+        if (event.target.closest('[data-world-inventory]')) { pauseWorldForExistingMenu('inventoryBtn'); return; }
         if (event.target.closest('#mwOpenClanHall')) {
             closeWorldBuilding();
             monkeyWorld.pausedForMenu = true;
@@ -7412,8 +8451,8 @@
         document.getElementById(closeId)?.addEventListener('click', () => restoreWorldAfterMenu(true));
     }
     window.addEventListener('keydown', (event) => {
-        if (!monkeyWorld.joined || event.code !== 'Escape') return;
-        if (elements.mwBuildingModal.classList.contains('open')) {
+        if (!monkeyWorld.joined || !(window.flappyBackBindingMatches?.(event) ?? event.code === 'Escape')) return;
+        if (monkeyWorld.currentInterior) {
             event.preventDefault();
             event.stopImmediatePropagation();
             closeWorldBuilding();
@@ -7464,8 +8503,9 @@
     window.addEventListener('keydown', (event) => {
         if (!monkeyWorld.joined || !elements.monkeyWorldScreen.classList.contains('open')) return;
         if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
-        if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.code)) { monkeyWorld.keys.add(event.code); event.preventDefault(); }
-        if (event.code === 'KeyE' && !elements.mwBuildingModal.classList.contains('open') && monkeyWorld.nearbyBuilding) { openWorldBuilding(monkeyWorld.nearbyBuilding); event.preventDefault(); }
+        if (window.flappyBackBindingMatches?.(event)) return;
+        if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.code)) { cancelLocalWorldEmote(true);monkeyWorld.keys.add(event.code); event.preventDefault(); }
+        if (event.code === 'KeyE') { activateWorldInteraction(); event.preventDefault(); }
     });
     window.addEventListener('keyup', (event) => monkeyWorld.keys.delete(event.code));
     elements.mpBackBtn.addEventListener('click', async () => {
@@ -7474,6 +8514,7 @@
             { title:'Leave Active Race?', confirmLabel:'Leave Race', cancelLabel:'Keep Racing', danger:true }
         )) return;
         closeMultiplayer();
+        returnToOnlineHub();
     });
     const sendSocialAction = (message) => {
         state.pendingSocialAction = true;
@@ -7524,6 +8565,8 @@
         if (groupButton) { selectGroup(groupButton.dataset.groupId); return; }
         const button = event.target.closest('[data-social-action]');
         if (!button) return;
+        event.preventDefault();
+        event.stopPropagation();
         const userId = button.dataset.userId;
         const action = button.dataset.socialAction;
         if (action === 'profile') { sendSocialAction({ type: 'get_public_profile', userId }); return; }
@@ -7573,27 +8616,37 @@
             if (messages[action]) send(messages[action]);
             return;
         }
-        if (event.target.closest('#mpChooseClanIcon')) document.getElementById('mpClanIconFile')?.click();
-        if (event.target.closest('#mpChooseClanBanner')) document.getElementById('mpClanBannerFile')?.click();
+        const iconButton = event.target.closest('#mpChooseClanIcon');
+        if (iconButton) {
+            if (iconButton.disabled || !state.clan?.brandingUnlocks?.icon) return;
+            document.getElementById('mpClanIconFile')?.click();
+        }
+        const bannerButton = event.target.closest('#mpChooseClanBanner');
+        if (bannerButton) {
+            if (bannerButton.disabled || !state.clan?.brandingUnlocks?.banner) return;
+            document.getElementById('mpClanBannerFile')?.click();
+        }
     });
-    elements.mpClanContent.addEventListener('change', (event) => {
+    elements.mpClanContent.addEventListener('change', async (event) => {
         const input = event.target;
         if (!['mpClanIconFile', 'mpClanBannerFile'].includes(input.id)) return;
         const file = input.files?.[0];
         if (!file) return;
-        if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type) || file.size > 1.5 * 1024 * 1024) {
-            elements.mpClanError.textContent = 'Choose a PNG, JPEG, WebP, or GIF no larger than 1.5 MB.';
-            input.value = '';
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (input.id === 'mpClanIconFile') state.pendingClanIcon = String(reader.result || '');
-            else state.pendingClanBanner = String(reader.result || '');
+        try {
+            elements.mpClanError.textContent = 'Optimizing clan image…';
+            const prepared = await prepareClanBrandingImage(file, input.id === 'mpClanIconFile' ? 'icon' : 'banner');
+            if (input.id === 'mpClanIconFile') state.pendingClanIcon = prepared;
+            else state.pendingClanBanner = prepared;
             elements.mpClanError.textContent = `${file.name} is ready. Choose Save Branding to apply it.`;
-        };
-        reader.onerror = () => { elements.mpClanError.textContent = 'That clan image could not be read.'; };
-        reader.readAsDataURL(file);
+            updateClanBrandingSaveState();
+        } catch (error) {
+            elements.mpClanError.textContent = error?.message || 'That clan image could not be read.';
+            input.value = '';
+            updateClanBrandingSaveState();
+        }
+    });
+    elements.mpClanContent.addEventListener('input', (event) => {
+        if (['mpClanColor', 'mpClanTagColor'].includes(event.target.id)) updateClanBrandingSaveState();
     });
     elements.mpClanContent.addEventListener('submit', (event) => {
         event.preventDefault();
@@ -7602,17 +8655,40 @@
             return;
         }
         if (event.target.id === 'mpClanBrandingForm') {
+            if (!clanBrandingHasChanges()) {
+                updateClanBrandingSaveState();
+                return;
+            }
             const message = { type: 'update_clan_branding' };
-            if (state.pendingClanIcon) message.iconData = state.pendingClanIcon;
-            if (state.pendingClanBanner) message.bannerData = state.pendingClanBanner;
+            const optimisticBranding = {};
+            if (state.clan?.brandingUnlocks?.icon && state.pendingClanIcon) {
+                message.iconData = state.pendingClanIcon;
+                optimisticBranding.icon = state.pendingClanIcon;
+            }
+            if (state.clan?.brandingUnlocks?.banner && state.pendingClanBanner) {
+                message.bannerData = state.pendingClanBanner;
+                optimisticBranding.banner = state.pendingClanBanner;
+            }
             const color = document.getElementById('mpClanColor');
             const tagColor = document.getElementById('mpClanTagColor');
-            if (color && !color.disabled) message.color = color.value;
-            if (tagColor && !tagColor.disabled) message.tagColor = tagColor.value;
+            if (color && !color.disabled && color.value.toLowerCase() !== String(state.clan?.color || '').toLowerCase()) {
+                message.color = color.value;
+                optimisticBranding.color = color.value;
+            }
+            if (tagColor && !tagColor.disabled && tagColor.value.toLowerCase() !== String(state.clan?.tagColor || '').toLowerCase()) {
+                message.tagColor = tagColor.value;
+                optimisticBranding.tagColor = tagColor.value;
+            }
             if (send(message)) {
+                // Paint the chosen branding immediately. The following
+                // clan_state packet remains authoritative and replaces this
+                // optimistic snapshot without requiring a game refresh.
+                state.clan = { ...state.clan, ...optimisticBranding };
                 state.pendingClanIcon = null;
                 state.pendingClanBanner = null;
-                elements.mpClanError.textContent = 'Saving clan branding…';
+                renderClanSummary();
+                renderClanModal();
+                elements.mpClanError.textContent = 'Clan branding updated. Syncing with the server…';
             }
         }
     });
@@ -7649,6 +8725,8 @@
             ? { type: 'send_group_message', groupId: state.activeGroupId, text, mediaData: attachment?.data || '', mediaName: attachment?.name || '' }
             : { type: 'send_friend_message', userId: state.activeFriendId, text, mediaData: attachment?.data || '', mediaName: attachment?.name || '' });
         if (!sent) return;
+        forceChatScrollToBottom = true;
+        chatUserScrolledAway = false;
         state.pendingMessageDraft = { text, attachment };
         elements.mpMessageInput.value = '';
         clearPendingMessageAttachment();
@@ -7712,22 +8790,19 @@
         state.pendingGroupIcon = '';
         elements.mpGroupIconPreview.src = 'Default Monkey.png';
     });
-    elements.mpGroupIconFile.addEventListener('change', () => {
+    elements.mpGroupIconFile.addEventListener('change', async () => {
         const file = elements.mpGroupIconFile.files?.[0];
         if (!file) return;
-        if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type) || file.size > 1.5 * 1024 * 1024) {
-            elements.mpGroupError.textContent = 'Choose a PNG, JPEG, WebP, or GIF no larger than 1.5 MB.';
-            elements.mpGroupIconFile.value = '';
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-            state.pendingGroupIcon = String(reader.result || '');
+        try {
+            elements.mpGroupError.textContent = 'Optimizing group icon…';
+            state.pendingGroupIcon = await prepareClanBrandingImage(file, 'icon');
             elements.mpGroupIconPreview.src = state.pendingGroupIcon;
             elements.mpGroupError.textContent = '';
-        };
-        reader.onerror = () => { elements.mpGroupError.textContent = 'That group icon could not be read.'; };
-        reader.readAsDataURL(file);
+        } catch (error) {
+            elements.mpGroupError.textContent = error?.message || 'That group icon could not be prepared.';
+            elements.mpGroupIconFile.value = '';
+            state.pendingGroupIcon = null;
+        }
     });
     elements.mpGroupForm.addEventListener('submit', (event) => {
         event.preventDefault();
@@ -7797,6 +8872,18 @@
         if (!text) return;
         elements.mpActivityError.textContent = '';
         if (send({ type: 'send_activity_message', text })) elements.mpActivityInput.value = '';
+    });
+    elements.mpMessages.addEventListener('scroll', () => {
+        const maximum = Math.max(0, elements.mpMessages.scrollHeight - elements.mpMessages.clientHeight);
+        chatUserScrolledAway = maximum - elements.mpMessages.scrollTop > 8;
+        if (chatUserScrolledAway) forceChatScrollToBottom = false;
+    }, { passive: true });
+    elements.mpActivityInput.addEventListener('keydown', (event) => {
+        // Global Live Activity is deliberately single-line. Enter always sends,
+        // including Shift+Enter, rather than inserting another line.
+        if (event.key !== 'Enter' || event.isComposing) return;
+        event.preventDefault();
+        elements.mpActivityForm.requestSubmit();
     });
     elements.mpActivityList.addEventListener('click', async (event) => {
         const profile = event.target.closest('[data-chat-profile]');
@@ -7956,7 +9043,7 @@
     document.getElementById('settingsPopup')?.addEventListener('flappy:settings-close', resetOwnerGrantControls);
 
     window.addEventListener('keydown', (event) => {
-        if (elements.mpAccountDangerModal.classList.contains('open') && event.code === 'Escape') {
+        if (elements.mpAccountDangerModal.classList.contains('open') && (window.flappyBackBindingMatches?.(event) ?? event.code === 'Escape')) {
             event.preventDefault();
             closeDangerModal();
             return;
@@ -8064,20 +9151,55 @@
     };
     window.flappyGoOffline = goOffline;
     window.isFlappyOnline = () => Boolean(state.onlineOptIn && state.authenticated && state.socket?.readyState === WebSocket.OPEN);
+    let fallbackLatencyProbeAt = 0;
+    let fallbackLatencyProbeActive = false;
+    const probeHealthLatency = async () => {
+        if (fallbackLatencyProbeActive || Date.now() - fallbackLatencyProbeAt < 8000) return;
+        fallbackLatencyProbeAt = Date.now();
+        fallbackLatencyProbeActive = true;
+        const startedAt = performance.now();
+        try {
+            const healthUrl = new URL(state.socketUrl);
+            healthUrl.protocol = healthUrl.protocol === 'wss:' ? 'https:' : 'http:';
+            healthUrl.pathname = '/health';
+            healthUrl.search = `?ping=${Date.now()}`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 4500);
+            const response = await fetch(healthUrl, { cache:'no-store', signal:controller.signal });
+            clearTimeout(timeout);
+            if (!response.ok) throw new Error('Ping probe failed.');
+            window.flappyOnlinePingMs = Math.max(0, Math.round(performance.now() - startedAt));
+            window.dispatchEvent(new CustomEvent('flappy-online-ping', { detail:{ pingMs:window.flappyOnlinePingMs, transport:'http' } }));
+        } catch (_) {
+            window.flappyOnlinePingMs = undefined;
+            window.dispatchEvent(new CustomEvent('flappy-online-ping', { detail:{ pingMs:null, transport:'http' } }));
+        } finally {
+            fallbackLatencyProbeActive = false;
+        }
+    };
+    const sendLatencyProbe = () => {
+        const supported = state.serverCapabilities.includes('latency_probe_v1');
+        if (supported && state.authenticated && state.socket?.readyState === WebSocket.OPEN) {
+            send({ type:'latency_ping', clientSentAt:Date.now() });
+        } else if (state.authenticated && state.socket?.readyState === WebSocket.OPEN) {
+            probeHealthLatency();
+        } else if (window.flappyOnlinePingMs !== undefined) {
+            window.flappyOnlinePingMs = undefined;
+            window.dispatchEvent(new CustomEvent('flappy-online-status', { detail:{ online:false } }));
+        }
+    };
+    setInterval(sendLatencyProbe, 4000);
+    window.addEventListener('flappy-online-message', event => {
+        if (event.detail?.type === 'auth_success') {
+            setTimeout(sendLatencyProbe, 100);
+            window.dispatchEvent(new CustomEvent('flappy-online-status', { detail:{ online:true } }));
+        }
+    });
     window.reportFlappyClanScore = (score) => {
         const safeScore = Math.max(0, Math.floor(Number(score) || 0));
-        return safeScore > 0 && state.clan ? send({ type: 'report_clan_score', score: safeScore }) : false;
-    };
-    window.flappyReportMobileScore = (score) => {
-        const safeScore = Math.max(0, Math.floor(Number(score) || 0));
-        if (!LOCAL_MOBILE_DEVICE || safeScore < 25) return false;
-        const previous = Math.max(0, Math.floor(Number(localStorage.getItem(PENDING_MOBILE_SCORE_KEY)) || 0));
-        localStorage.setItem(PENDING_MOBILE_SCORE_KEY, String(Math.max(previous, safeScore)));
-        if (state.authenticated && state.socket?.readyState === WebSocket.OPEN) {
-            return send({ type:'claim_mobile_score_skin', score:safeScore });
-        }
-        showToast('Score 25+ reached on mobile! Sign in or reconnect Online so Mobile Monkey can be saved to your account.');
-        return false;
+        return safeScore > 0 && state.clan && state.authenticated && state.socket?.readyState === WebSocket.OPEN
+            ? send({ type: 'report_clan_score', score: safeScore })
+            : false;
     };
     window.reportFlappyGameStarted = (mode) => state.authenticated && send({ type: 'report_game_started', mode });
 
@@ -8095,6 +9217,7 @@
             if (onlineDefense.room) renderDefenseRoom();
             if (elements.mpActivityModal.classList.contains('open')) renderActivityFeed();
             if (elements.mpSocialCenter.classList.contains('open')) renderSocial();
+            if (elements.mpClanModal.classList.contains('open')) renderClanModal();
             if (monkeyWorld.joined) renderMonkeyWorldChat();
             if (state.publicProfile?.id === state.account.id && elements.mpPublicProfileModal.classList.contains('open')) {
                 renderPublicProfile({ ...state.publicProfile, ...liveTitle });
@@ -8122,6 +9245,82 @@
     document.addEventListener('click', (event) => {
         if (event.target.closest('.fm-emoji-picker')) return;
         document.querySelectorAll('.fm-emoji-picker.open').forEach((picker) => picker.classList.remove('open'));
+    });
+    window.FlappyMonkeyDuel?.attach?.({
+        send,
+        requestOnlineAccess,
+        account: () => state.account,
+        serverOffset: () => state.serverOffset,
+        toast: showToast
+    });
+    window.addEventListener('flappy-name-appearance-changed', () => {
+        const liveName = { nameStyle: currentNameStyle() };
+        if (state.account) {
+            state.account = { ...state.account, ...liveName };
+            state.activityFeed = state.activityFeed.map((entry) => entry.userId === state.account.id ? { ...entry, ...liveName } : entry);
+            renderProfile();
+            if (state.room) renderLobby();
+            if (onlineDefense.room) renderDefenseRoom();
+            if (elements.mpActivityModal.classList.contains('open')) renderActivityFeed();
+            if (elements.mpSocialCenter.classList.contains('open')) renderSocial();
+            if (elements.mpClanModal.classList.contains('open')) renderClanModal();
+            if (monkeyWorld.joined) renderMonkeyWorldChat();
+            if (state.publicProfile?.id === state.account.id && elements.mpPublicProfileModal.classList.contains('open')) {
+                renderPublicProfile({ ...state.publicProfile, ...liveName });
+            }
+        }
+        if (state.authenticated && state.socket?.readyState === WebSocket.OPEN && !baseGameIsActivelyRunning()) syncAccountCosmetics(true);
+        else scheduleAccountCosmeticsSync(true);
+    });
+    window.addEventListener('flappy-banner-changed', () => {
+        const banner = currentBanner();
+        if (state.account) {
+            state.account = { ...state.account, banner };
+            state.activityFeed = state.activityFeed.map((entry) => entry.userId === state.account.id ? { ...entry, banner } : entry);
+            renderProfile();
+            if (state.room) renderLobby();
+            if (onlineDefense.room) renderDefenseRoom();
+            if (elements.mpActivityModal.classList.contains('open')) renderActivityFeed();
+            if (elements.mpSocialCenter.classList.contains('open')) renderSocial();
+            if (elements.mpClanModal.classList.contains('open')) renderClanModal();
+            if (monkeyWorld.joined) renderMonkeyWorldChat();
+            if (state.publicProfile?.id === state.account.id && elements.mpPublicProfileModal.classList.contains('open')) {
+                renderPublicProfile({ ...state.publicProfile, banner });
+            }
+        }
+        scheduleAccountCosmeticsSync(true);
+    });
+    window.addEventListener('flappy-monkey-world-emote-request',(event)=>{
+        if(!monkeyWorld.joined||monkeyWorld.pausedForMenu)return;
+        const id=String(event.detail?.id||''),definition=(window.FlappyEmotes?.definitions||[]).find(item=>item.id===id);
+        if(!definition||!window.FlappyEmotes?.owns?.(id)){showToast('That Monkey World emote is not owned.',true);return;}
+        cancelLocalWorldEmote(true);
+        const startedAt=Date.now()+state.serverOffset,action={id,profileId:state.account?.id||'',startedAt,until:startedAt+(Number(definition.duration)||6500),x:monkeyWorld.x,y:monkeyWorld.y};
+        monkeyWorld.localEmote=action;monkeyWorld.keys.clear();monkeyWorld.moving=false;startWorldEmoteAudio(action);
+        if(!send({type:'monkey_world_emote',id})){monkeyWorld.localEmote=null;stopWorldEmoteAudio(action.profileId,120);}
+    });
+    window.FlappyWorldEvents?.attach?.({
+        send,
+        localId: () => state.account?.id || '',
+        localPlayer: () => ({
+            profileId:state.account?.id || '', username:state.account?.username || 'You',
+            x:monkeyWorld.x, y:monkeyWorld.y, direction:monkeyWorld.direction,
+            skin:currentSkin(), aura:currentAura(), banner:currentBanner(), equippedTitle:currentTitle(), titleStyle:currentTitleStyle(), nameStyle:currentNameStyle()
+        }),
+        serverOffset: () => state.serverOffset,
+        teleport: (x, y) => {
+            if (!Number.isFinite(Number(x)) || !Number.isFinite(Number(y))) return;
+            monkeyWorld.x = Number(x); monkeyWorld.y = Number(y);
+            monkeyWorld.cameraX = Math.max(0, monkeyWorld.x - innerWidth / 2);
+            monkeyWorld.cameraY = Math.max(0, monkeyWorld.y - innerHeight / 2);
+        },
+        focus: (x, y) => {
+            if (!Number.isFinite(Number(x)) || !Number.isFinite(Number(y))) return;
+            monkeyWorld.cameraX = Math.max(0, Number(x) - innerWidth / 2);
+            monkeyWorld.cameraY = Math.max(0, Number(y) - innerHeight / 2);
+        },
+        toast: showToast,
+        persistProfile
     });
     window.setInterval(renderLiveEvent, 1000);
 

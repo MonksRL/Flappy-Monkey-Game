@@ -25,13 +25,8 @@
             this.width = width;
             this.height = height;
             this.backgroundImage = new Image();
-            this.backgroundReady = false;
-            const mobileViewport = matchMedia('(max-width: 760px), (pointer: coarse)').matches;
-            this.mobileOptimized = mobileViewport;
-            this.backgroundSources = mobileViewport
-                ? ['monkey-world-banana-coast-mobile.webp', 'monkey-world-banana-coast.webp', 'monkey-world-banana-coast.png']
-                : ['monkey-world-banana-coast.webp', 'monkey-world-banana-coast.png'];
-            this.loadBackground(0);
+            this.backgroundImage.decoding = 'async';
+            this.backgroundImage.src = 'monkey-world-banana-coast.png';
             this.decor = Array.from({ length: 94 }, (_, index) => ({
                 x: 260 + seeded(index, 1) * (width - 520),
                 y: 180 + seeded(index, 2) * (height - 430),
@@ -47,23 +42,6 @@
                 phase: seeded(index, 22) * TAU,
                 speed: .45 + seeded(index, 23) * .8
             }));
-        }
-
-        loadBackground(sourceIndex) {
-            const source = this.backgroundSources[sourceIndex];
-            if (!source) return;
-            const image = new Image();
-            image.decoding = 'async';
-            image.fetchPriority = 'high';
-            image.onload = () => {
-                this.backgroundImage = image;
-                this.backgroundReady = true;
-                image.decode?.().catch(() => {});
-            };
-            image.onerror = () => this.loadBackground(sourceIndex + 1);
-            image.src = source;
-            this.backgroundImage = image;
-            if (image.complete && image.naturalWidth) this.backgroundReady = true;
         }
 
         islandPath(context, inset = 0) {
@@ -471,48 +449,31 @@
 
         render(context, { cameraX, cameraY, viewWidth, viewHeight, now, buildings }) {
             context.clearRect(0, 0, viewWidth, viewHeight);
-            const ready = (this.backgroundReady || this.backgroundImage.complete) && this.backgroundImage.naturalWidth;
-            if (ready && this.mobileOptimized) {
-                // The phone only needs the camera's visible crop. Drawing the
-                // entire 3200×1800 coast plus animated ocean/light overlays on
-                // every movement frame was the largest Monkey World GPU cost.
-                const sourceScaleX = this.backgroundImage.naturalWidth / this.width;
-                const sourceScaleY = this.backgroundImage.naturalHeight / this.height;
-                context.drawImage(
-                    this.backgroundImage,
-                    cameraX * sourceScaleX, cameraY * sourceScaleY,
-                    viewWidth * sourceScaleX, viewHeight * sourceScaleY,
-                    0, 0, viewWidth, viewHeight
-                );
-            } else if (ready) {
-                context.save();
-                context.translate(-cameraX, -cameraY);
-                this.drawIllustratedBackground(context, now);
-                context.restore();
-            } else {
-                // Do not render an entirely different procedural town while the
-                // real coast artwork is downloading. Besides looking wrong, that
-                // fallback drew hundreds of shapes every frame on the slowest
-                // devices. This lightweight loading field is replaced as soon as
-                // the compressed illustration finishes decoding.
-                const loading = context.createLinearGradient(0, 0, 0, this.height);
-                loading.addColorStop(0, '#0b7891');
-                loading.addColorStop(.55, '#159a88');
-                loading.addColorStop(1, '#1f6948');
-                context.fillStyle = loading;
-                context.fillRect(0, 0, this.width, this.height);
-                context.fillStyle = 'rgba(255,239,139,.16)';
-                context.beginPath();
-                context.arc(viewWidth / 2, viewHeight / 2, Math.min(viewWidth, viewHeight) * .24, 0, TAU);
-                context.fill();
+            context.save();
+            context.translate(-cameraX, -cameraY);
+            if (this.backgroundImage.complete && this.backgroundImage.naturalWidth) this.drawIllustratedBackground(context, now);
+            else {
+                this.drawOcean(context, now);
+                this.drawIsland(context, now);
+                this.drawRoads(context);
+                this.drawPond(context, now);
+                for (const item of this.decor) this.drawTree(context, item, now);
+                this.drawProps(context, now);
+                for (const building of buildings) this.drawBuilding(context, building, now);
+                for (const sparkle of this.sparkles) {
+                    const alpha = .14 + Math.sin(now * .001 * sparkle.speed + sparkle.phase) * .12;
+                    context.globalAlpha = Math.max(0, alpha);
+                    context.fillStyle = '#fffbd1';
+                    context.beginPath(); context.arc(sparkle.x, sparkle.y, 2.5, 0, TAU); context.fill();
+                }
             }
             context.globalAlpha = 1;
-            if (!this.mobileOptimized) {
-                const vignette = context.createRadialGradient(viewWidth / 2, viewHeight / 2, viewHeight * .25, viewWidth / 2, viewHeight / 2, Math.max(viewWidth, viewHeight) * .72);
-                vignette.addColorStop(0, 'rgba(0,0,0,0)');
-                vignette.addColorStop(1, 'rgba(2,24,35,.22)');
-                context.fillStyle = vignette; context.fillRect(0, 0, viewWidth, viewHeight);
-            }
+            context.restore();
+
+            const vignette = context.createRadialGradient(viewWidth / 2, viewHeight / 2, viewHeight * .25, viewWidth / 2, viewHeight / 2, Math.max(viewWidth, viewHeight) * .72);
+            vignette.addColorStop(0, 'rgba(0,0,0,0)');
+            vignette.addColorStop(1, 'rgba(2,24,35,.22)');
+            context.fillStyle = vignette; context.fillRect(0, 0, viewWidth, viewHeight);
         }
     }
 

@@ -1,0 +1,134 @@
+:root {
+  --fm-theme-page: var(--theme-page, var(--menu-bg, #082d23));
+  --fm-theme-panel: var(--theme-panel, var(--menu-panel, #0d4233));
+  --fm-theme-card: var(--theme-card, var(--menu-card, #155742));
+  --fm-theme-button: var(--theme-button, var(--menu-button, #26724e));
+  --fm-theme-border: var(--theme-border, var(--menu-border, #7ad7a2));
+  --fm-theme-input: var(--theme-input, color-mix(in srgb, var(--fm-theme-panel) 76%, #000));
+  --fm-theme-text: var(--theme-text, #fff4b8);
+  --fm-theme-muted: var(--theme-muted, color-mix(in srgb, var(--fm-theme-text) 70%, transparent));
+}
+
+select option,
+select optgroup {
+  background: #f4f1e8 !important;
+  color: #17231d !important;
+}
+
+.settings-grid,
+#settingsContent .settings-grid {
+  align-items: start !important;
+  grid-auto-rows: max-content !important;
+}
+
+.settings-section,
+.settings-card,
+#settingsContent .settings-section,
+#settingsContent .settings-card {
+  height: auto !important;
+  min-height: 0 !important;
+  align-self: start !important;
+}
+
+/* Shared themed surfaces. These menus historically kept the old green palette. */
+#collectionIndexModal .modal-content,
+#collectionIndexModal .index-card,
+#musicOptionsModal .modal-content,
+#musicOptionsModal .music-options-card,
+#nameAppearancePopup .modal-content,
+#titleColorModal .modal-content,
+#bananaMarketModal .modal-content,
+#bananaMarketModal .shop-card,
+#bananaMarketModal .market-card,
+#globalLiveActivityModal .modal-content,
+#globalLiveActivityModal .live-feed-card,
+.online-modes-page .online-mode-card,
+.online-defense-page .panel,
+.online-defense-page .card,
+.defense-guide-modal .modal-content,
+.online-race-page .panel,
+.online-race-page .card,
+.monkey-duel-page .panel,
+.monkey-duel-page .card,
+.friends-messages-page .panel,
+.friends-messages-page .card,
+.monkey-world-landmark,
+.monkey-world-world-chat,
+.monkey-world-world-chat .world-chat-message,
+.monkey-world-controls-hint,
+.monkey-world-emote-wheel {
+  background-color: var(--fm-theme-panel) !important;
+  border-color: var(--fm-theme-border) !important;
+  color: var(--fm-theme-text) !important;
+}
+
+#collectionIndexModal .index-item,
+#collectionIndexModal .index-reward,
+#bananaMarketModal .item-card,
+#bananaMarketModal .shop-item,
+#globalLiveActivityModal .activity-item,
+.online-modes-page .online-mode-card > *,
+.online-defense-page .stat-card,
+.online-defense-page .leaderboard-row,
+.defense-guide-modal .guide-card,
+.online-race-page .stat-card,
+.monkey-duel-page .duel-card,
+.friends-messages-page .friend-card,
+.friends-messages-page .message-card {
+  border-color: color-mix(in srgb, var(--fm-theme-border) 72%, transparent) !important;
+}
+
+#collectionIndexModal input,
+#collectionIndexModal select,
+#musicOptionsModal input,
+#musicOptionsModal select,
+#nameAppearancePopup input,
+#nameAppearancePopup select,
+#titleColorModal input,
+#titleColorModal select,
+#bananaMarketModal input,
+#bananaMarketModal select,
+#globalLiveActivityModal input,
+#globalLiveActivityModal textarea,
+.online-modes-page input,
+.online-modes-page select,
+.online-defense-page input,
+.online-defense-page select,
+.online-race-page input,
+.online-race-page select,
+.monkey-duel-page input,
+.monkey-duel-page select,
+.friends-messages-page input,
+.friends-messages-page textarea,
+.monkey-world-world-chat input,
+.monkey-world-world-chat textarea {
+  background: var(--fm-theme-input) !important;
+  border-color: var(--fm-theme-border) !important;
+  color: var(--fm-theme-text) !important;
+}
+
+#collectionIndexModal button,
+#musicOptionsModal button,
+#nameAppearancePopup button,
+#titleColorModal button,
+#bananaMarketModal button,
+#globalLiveActivityModal button,
+.online-modes-page button,
+.online-defense-page button,
+.defense-guide-modal button,
+.online-race-page button,
+.monkey-duel-page button,
+.friends-messages-page button,
+.monkey-world-world-chat button,
+.monkey-world-emote-wheel button {
+  background-color: var(--fm-theme-button) !important;
+  border-color: var(--fm-theme-border) !important;
+  color: var(--fm-theme-text) !important;
+}
+
+/* The account XP strip is deliberately not a player-banner surface. */
+.account-xp-strip,
+#accountXpBar,
+.account-level-progress {
+  background-image: none !important;
+}
