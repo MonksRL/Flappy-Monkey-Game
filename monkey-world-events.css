@@ -92,6 +92,11 @@
 #mwEventRespawn.mw-event-hidden,
 #mwEventAtmosphere.mw-event-hidden { display: none !important; }
 
+/* A stale building-proximity frame must never compete with event actions.
+   The runtime also hides this button, while this selector closes the single
+   frame gap that used to stack "Buildings Locked" under event controls. */
+#mwGame.mw-event-active #mwInteract { display: none !important; }
+
 .mw-event-hud-head { display: grid; grid-template-columns: 48px minmax(0,1fr) auto; align-items: center; gap: 11px; }
 .mw-event-hud-icon { display: grid; width: 46px; height: 46px; overflow: hidden; place-items: center; border: 1px solid color-mix(in srgb, var(--mw-event-accent) 58%, transparent); border-radius: 15px; background: rgba(3, 15, 20, .72); box-shadow: inset 0 1px rgba(255,255,255,.1), 0 6px 14px rgba(0,0,0,.26); font-size: 25px; }
 .mw-event-hud-icon img { width: 100%; height: 100%; object-fit: cover; }

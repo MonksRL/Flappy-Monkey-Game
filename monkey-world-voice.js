@@ -332,9 +332,22 @@
                 entry.audio.volume = 0.65;
                 continue;
             }
-            const distance = Math.hypot(Number(local.x) - Number(remote.x), Number(local.y) - Number(remote.y));
-            const proximity = distance <= 260 ? 1 : Math.max(0.12, 1 - (distance - 260) / 900);
-            entry.audio.volume = proximity * Math.max(0, Math.min(1, Number(shared.effects ?? 80) / 100));
+            const localX = Number(local.x), localY = Number(local.y);
+            const remoteX = Number(remote.x), remoteY = Number(remote.y);
+            const distance = [localX, localY, remoteX, remoteY].every(Number.isFinite)
+                ? Math.hypot(localX - remoteX, localY - remoteY)
+                : Infinity;
+            const proximity = Number.isFinite(distance)
+                ? (distance <= 260 ? 1 : Math.max(0.12, Math.min(1, 1 - (distance - 260) / 900)))
+                : 0;
+            const effectsSetting = Number(shared.effects ?? 80);
+            const channelVolume = Number.isFinite(effectsSetting)
+                ? Math.max(0, Math.min(1, effectsSetting / 100))
+                : 0.8;
+            // HTMLMediaElement throws when it receives NaN or an out-of-range
+            // volume. A player can briefly have incomplete coordinates while a
+            // new world/room is synchronizing, so always assign a finite value.
+            entry.audio.volume = Math.max(0, Math.min(1, proximity * channelVolume));
         }
     }
 

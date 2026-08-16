@@ -284,7 +284,7 @@
             if (nearby) { lastAutoCollectAt = now; bridge.send({ type:'monkey_world_event_action', action:'collect', entityId:nearby.id }); }
         }
         if (event.type === 'dance_party' && local && stats?.alive) {
-            const center = event.danceCenter || [1600,930];
+            const center = event.danceCenter || [1600,1350];
             const onFloor = Math.hypot(local.x-center[0],local.y-center[1]) <= 420;
             const previous = lastDancePosition;
             const moved = previous ? Math.hypot(local.x-previous.x,local.y-previous.y) : 0;
@@ -367,11 +367,24 @@
     function smoothNpcPosition(key, entity, responsiveness) {
         const targetX=Number(entity?.x)||0,targetY=Number(entity?.y)||0;
         let position=npcDisplayPositions.get(key);
-        if(!position){position={x:targetX,y:targetY,previousX:targetX,previousY:targetY};npcDisplayPositions.set(key,position);return position;}
+        const now=performance.now();
+        if(!position){position={x:targetX,y:targetY,previousX:targetX,previousY:targetY,targetX,targetY,startX:targetX,startY:targetY,startAt:now,duration:112};npcDisplayPositions.set(key,position);return position;}
         position.previousX=position.x;position.previousY=position.y;
-        const distance=Math.hypot(targetX-position.x,targetY-position.y);
-        if(distance>520){position.x=targetX;position.y=targetY;}
-        else{position.x+=(targetX-position.x)*responsiveness;position.y+=(targetY-position.y)*responsiveness;}
+        const targetChanged=Math.abs(targetX-position.targetX)>.01||Math.abs(targetY-position.targetY)>.01;
+        if(targetChanged){
+            const distance=Math.hypot(targetX-position.x,targetY-position.y);
+            if(distance>520){position.x=targetX;position.y=targetY;position.startX=targetX;position.startY=targetY;}
+            else{position.startX=position.x;position.startY=position.y;}
+            position.targetX=targetX;position.targetY=targetY;position.startAt=now;
+            // Server NPC snapshots arrive at roughly 10 Hz. Tween across that
+            // interval rather than racing to each snapshot in a few frames;
+            // this removes the visible stop-and-jump motion on fast displays.
+            position.duration=Math.max(94,Math.min(126,132-Number(responsiveness||.1)*120));
+        }
+        const progress=Math.max(0,Math.min(1,(now-position.startAt)/Math.max(1,position.duration)));
+        const eased=progress*progress*(3-2*progress);
+        position.x=position.startX+(position.targetX-position.startX)*eased;
+        position.y=position.startY+(position.targetY-position.startY)*eased;
         return position;
     }
 
@@ -421,31 +434,27 @@
     }
 
     function drawDanceStage(context, now) {
-        const [x,y]=event.danceCenter||[1600,930];
+        const [x,y]=event.danceCenter||[1600,1350];
         const stage=image('assets/event-vault/dance-party-stage-runtime.png?v=20260815a');
-        const ball=image('assets/event-vault/dance-party-disco-ball-runtime.png?v=20260815a');
         context.save();
         context.translate(x,y);
         const beat=(Math.sin(now*.008)+1)/2;
+        const stagePulse=1+beat*.012;
+        context.scale(stagePulse,stagePulse);
         context.shadowColor=`hsla(${(now*.045)%360},100%,65%,.75)`;context.shadowBlur=28+beat*28;
         if(stage.complete&&stage.naturalWidth)context.drawImage(stage,-440,-440,880,880);
         context.shadowBlur=0;
         context.save();context.globalCompositeOperation='screen';context.globalAlpha=.16+beat*.18;
         const floorGlow=context.createRadialGradient(0,90,40,0,90,330);floorGlow.addColorStop(0,`hsla(${(now*.05)%360},100%,72%,.85)`);floorGlow.addColorStop(.58,`hsla(${(now*.05+120)%360},100%,55%,.38)`);floorGlow.addColorStop(1,'rgba(0,0,0,0)');context.fillStyle=floorGlow;context.beginPath();context.ellipse(0,95,345,270,0,0,Math.PI*2);context.fill();context.restore();
-        for(const side of [-1,1])for(const speakerY of [-90,30]){
-            const pulse=26+beat*9+(speakerY===30?6:0);context.save();context.globalAlpha=.4+beat*.42;context.strokeStyle=side<0?'#50eaff':'#ff5ad8';context.lineWidth=4+beat*3;context.shadowColor=context.strokeStyle;context.shadowBlur=19+beat*10;context.beginPath();context.arc(side*316,speakerY,pulse,0,Math.PI*2);context.stroke();context.restore();
-        }
         context.globalCompositeOperation='lighter';
         for(let beam=0;beam<5;beam+=1){const angle=now*.00055+beam*Math.PI*.4;context.fillStyle=`hsla(${(beam*72+now*.035)%360},95%,65%,${.055+beat*.035})`;context.beginPath();context.moveTo(0,-245);context.lineTo(Math.cos(angle)*620,Math.sin(angle)*430);context.lineTo(Math.cos(angle+.13)*620,Math.sin(angle+.13)*430);context.closePath();context.fill();}
-        context.globalCompositeOperation='source-over';
-        context.translate(0,-150);context.rotate(Math.sin(now*.0012)*.035);const ballSize=218+beat*8;context.shadowColor='#d4f8ff';context.shadowBlur=30+beat*30;if(ball.complete&&ball.naturalWidth)context.drawImage(ball,-ballSize/2,-ballSize/2,ballSize,ballSize);
         context.restore();
     }
 
     function drawFireworkLauncher(context, launcher, now) {
         const art=image('assets/event-vault/firework-launcher-runtime.png?v=20260815a');
         const pulse=(Math.sin(now*.006+launcher.x*.01)+1)/2;
-        context.save();context.translate(launcher.x,launcher.y);context.shadowColor='#ff63d4';context.shadowBlur=18+pulse*16;if(art.complete&&art.naturalWidth)context.drawImage(art,-61,-96,122,122);context.globalAlpha=.38+pulse*.28;context.strokeStyle='#72f3ff';context.lineWidth=3;context.beginPath();context.ellipse(0,22,46+pulse*5,17+pulse*2,0,0,Math.PI*2);context.stroke();context.restore();
+        context.save();context.translate(launcher.x,launcher.y);context.shadowColor='#ff63d4';context.shadowBlur=28+pulse*24;if(art.complete&&art.naturalWidth)context.drawImage(art,-84,-132,168,168);context.globalAlpha=.42+pulse*.32;context.strokeStyle='#72f3ff';context.lineWidth=4;context.beginPath();context.ellipse(0,29,61+pulse*7,21+pulse*3,0,0,Math.PI*2);context.stroke();context.restore();
     }
 
     function drawCombatArena(context, now) {
@@ -526,8 +535,8 @@
         if(stage==='back'){
             drawCombatArena(context,now);
             if(event.type==='snowstorm'){
-                context.save();const chill=context.createLinearGradient(0,0,0,1700);chill.addColorStop(0,'rgba(225,247,255,.24)');chill.addColorStop(1,'rgba(102,177,218,.18)');context.fillStyle=chill;context.fillRect(0,0,3200,2200);
-                for(let i=0;i<110;i+=1){const x=(i*379+now*.05*(1+i%3))%3200,y=(i*193+now*.08*(1+i%4))%2200;context.globalAlpha=.45+(i%4)*.12;context.fillStyle='#fff';context.beginPath();context.arc(x,y,2+i%3,0,Math.PI*2);context.fill();}context.restore();
+                const worldWidth=5200,worldHeight=3400;context.save();const chill=context.createLinearGradient(0,0,0,worldHeight*.78);chill.addColorStop(0,'rgba(225,247,255,.24)');chill.addColorStop(1,'rgba(102,177,218,.18)');context.fillStyle=chill;context.fillRect(0,0,worldWidth,worldHeight);
+                for(let i=0;i<170;i+=1){const x=(i*379+now*.05*(1+i%3))%worldWidth,y=(i*193+now*.08*(1+i%4))%worldHeight;context.globalAlpha=.45+(i%4)*.12;context.fillStyle='#fff';context.beginPath();context.arc(x,y,2+i%3,0,Math.PI*2);context.fill();}context.restore();
             }
             if(event.type==='dance_party')drawDanceStage(context,now);
             for(const launcher of event.launchers||[])drawFireworkLauncher(context,launcher,now);

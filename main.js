@@ -2,6 +2,21 @@ const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const { createDiscordPresence } = require('./discord-presence');
 
+// A packaged build may be launched without a durable parent console. Windows
+// can close Electron's inherited stdout/stderr pipe while the app is still
+// running; a later diagnostic write would then surface as an uncaught EPIPE
+// main-process error. Diagnostics are optional, so quietly detach a broken
+// stream instead of allowing it to crash the game.
+function ignoreClosedDiagnosticPipe(stream) {
+  if (!stream || typeof stream.on !== 'function') return;
+  stream.on('error', (error) => {
+    if (error?.code !== 'EPIPE') throw error;
+  });
+}
+
+ignoreClosedDiagnosticPipe(process.stdout);
+ignoreClosedDiagnosticPipe(process.stderr);
+
 let mainWindow;
 let discordPresence;
 const startupSmokeTest = process.env.FLAPPY_SMOKE_TEST === 'true';
@@ -126,7 +141,7 @@ function createWindow() {
     });
   }
 
-  console.log('✅ Flappy Monkey launched successfully');
+  if (startupSmokeTest) console.log('✅ Flappy Monkey launched successfully');
 }
 
 ipcMain.on('discord-presence:set-enabled', (_event, enabled) => {

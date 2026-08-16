@@ -37,7 +37,7 @@ except ImportError:  # The app remains usable; remote avatars use initials.
 
 
 APP_NAME = "Flappy Monkey Control Panel"
-APP_VERSION = "1.9.2"
+APP_VERSION = "1.9.3"
 DEFAULT_SERVER = "https://flappy-monkey-server.onrender.com"
 DEFAULT_INVITE = "https://discord.gg/HCmAVTNtNe"
 ALLOWED_ROLES = (
@@ -894,6 +894,7 @@ class RoundedDropdown(tk.Canvas):
         self.hovered = False
         self.popup: tk.Toplevel | None = None
         self._focus_before_popup: tk.Misc | None = None
+        self._owner_escape_binding: str | None = None
         self.bind("<Button-1>", lambda _event: self.toggle())
         self.bind("<Return>", lambda _event: self.toggle())
         self.bind("<space>", lambda _event: self.toggle())
@@ -925,13 +926,13 @@ class RoundedDropdown(tk.Canvas):
             self.open()
 
     def open(self) -> None:
-        self.close()
+        self.close(restore_focus=False)
         owner = self.winfo_toplevel()
         try:
             self._focus_before_popup = owner.focus_get()
         except tk.TclError:
             self._focus_before_popup = None
-        popup = tk.Toplevel(self)
+        popup = tk.Toplevel(self, takefocus=False)
         self.popup = popup
         popup.overrideredirect(True)
         popup.configure(bg=COLORS["bg"])
@@ -964,24 +965,13 @@ class RoundedDropdown(tk.Canvas):
             row.bind("<Enter>", lambda _event, widget=row: widget.configure(bg=COLORS["panel3"]))
             row.bind("<Leave>", lambda _event, widget=row, active=selected: widget.configure(bg=COLORS["panel3"] if active else COLORS["panel"]))
             row.bind("<Button-1>", lambda _event, choice=value: self.select(choice))
-        popup.bind("<Escape>", lambda _event: self.close())
-        def close_if_focus_left(_event=None) -> None:
-            def check() -> None:
-                if not popup.winfo_exists():
-                    return
-                focused = popup.focus_get()
-                if focused is None or focused.winfo_toplevel() is not popup:
-                    self.close()
-            popup.after(25, check)
-        popup.bind("<FocusOut>", close_if_focus_left, add=True)
+        # Keep keyboard focus in the field/button that opened this menu. On
+        # Windows an overrideredirect Toplevel can retain a dead focus handle
+        # after it is destroyed, which made the collection search field stop
+        # accepting input until the app lost and regained focus. The popup is
+        # mouse-driven; Escape is routed through the owner without focusing it.
+        self._owner_escape_binding = owner.bind("<Escape>", lambda _event: self.close(), add=True)
         popup.lift()
-        # focus_force() can strand Windows keyboard focus on a destroyed
-        # borderless Toplevel. A normal focus request is sufficient for Escape
-        # handling and lets us reliably restore the exact prior text field.
-        try:
-            popup.focus_set()
-        except tk.TclError:
-            pass
         owner._fm_open_dropdown = self
         popup.after(180, lambda: popup.attributes("-topmost", False) if popup.winfo_exists() else None)
         self._draw()
@@ -992,17 +982,23 @@ class RoundedDropdown(tk.Canvas):
         if callable(self.command):
             self.command()
 
-    def close(self) -> None:
+    def close(self, restore_focus: bool = True) -> None:
         if self.popup and self.popup.winfo_exists():
             self.popup.destroy()
         owner = self.winfo_toplevel()
+        if self._owner_escape_binding:
+            try:
+                owner.unbind("<Escape>", self._owner_escape_binding)
+            except tk.TclError:
+                pass
+            self._owner_escape_binding = None
         if getattr(owner, "_fm_open_dropdown", None) is self:
             owner._fm_open_dropdown = None
         self.popup = None
         self._draw()
         previous_focus = self._focus_before_popup
         self._focus_before_popup = None
-        if previous_focus is not None:
+        if restore_focus and previous_focus is not None:
             def restore_previous_focus() -> None:
                 try:
                     if previous_focus.winfo_exists():
