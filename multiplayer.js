@@ -1805,14 +1805,17 @@
         renderLiveEvent();
     });
 
-    const MONKEY_WORLD_WIDTH = 3200;
-    const MONKEY_WORLD_HEIGHT = 2200;
+    // Banana Coast is intentionally larger than the original plaza-sized map.
+    // The extra room is used by the garden, cove, meadow, boardwalk, grove,
+    // terrace, hill and waterfall districts rather than empty scenery.
+    const MONKEY_WORLD_WIDTH = 5200;
+    const MONKEY_WORLD_HEIGHT = 3400;
     const MONKEY_WORLD_BUILDINGS = [
-        { id: 'market', name: 'Banana Market', icon: '🍌', x: 250, y: 270, w: 900, h: 560, color: '#df922c', highlight: '#ffca4d', roof: '#ffe367', doorX: 885, doorY: 742, collision: { x: 230, y: 205, w: 875, h: 445 }, occlusion: { x: 235, y: 260, w: 950, h: 620, frontY: 835 } },
-        { id: 'wardrobe', name: 'Monkey Style', icon: '👕', x: 1290, y: 170, w: 620, h: 440, color: '#784ac3', highlight: '#bc78ed', roof: '#e2a6ff', doorX: 1635, doorY: 602, collision: { x: 1290, y: 165, w: 610, h: 385 }, occlusion: { x: 1270, y: 150, w: 670, h: 535, frontY: 630 } },
-        { id: 'cafe', name: 'Banana Café', icon: '🥤', x: 2070, y: 240, w: 570, h: 450, color: '#d85c42', highlight: '#ff9670', roof: '#ffcc77', doorX: 2385, doorY: 640, collision: { x: 2060, y: 260, w: 560, h: 345 }, occlusion: { x: 2040, y: 215, w: 650, h: 555, frontY: 720 } },
-        { id: 'arcade', name: 'Monkey Arcade', icon: '🕹️', x: 2600, y: 600, w: 600, h: 500, color: '#2d5fc9', highlight: '#5aa7ff', roof: '#78e5ff', doorX: 2785, doorY: 1045, collision: { x: 2600, y: 600, w: 600, h: 350 }, occlusion: { x: 2580, y: 580, w: 620, h: 600, frontY: 1110 } },
-        { id: 'clan', name: 'Clan Hall', icon: '🛡️', x: 1840, y: 970, w: 940, h: 640, color: '#237648', highlight: '#54bb68', roof: '#ffe06c', doorX: 2145, doorY: 1415, collisions: [{ x: 1885, y: 965, w: 725, h: 390 }, { x: 2580, y: 1300, w: 155, h: 260 }], occlusion: { x: 1825, y: 950, w: 980, h: 700, frontY: 1560 } }
+        { id: 'market', name: 'Banana Market', icon: '🍌', x: 250, y: 330, w: 900, h: 560, color: '#df922c', highlight: '#ffca4d', roof: '#ffe367', doorX: 885, doorY: 802, collision: { x: 230, y: 265, w: 875, h: 445 }, occlusion: { x: 235, y: 320, w: 950, h: 620, frontY: 895 } },
+        { id: 'wardrobe', name: 'Monkey Style', icon: '👕', x: 1430, y: 170, w: 620, h: 440, color: '#784ac3', highlight: '#bc78ed', roof: '#e2a6ff', doorX: 1775, doorY: 602, collision: { x: 1430, y: 165, w: 610, h: 385 }, occlusion: { x: 1410, y: 150, w: 670, h: 535, frontY: 630 } },
+        { id: 'cafe', name: 'Banana Café', icon: '🥤', x: 2760, y: 300, w: 570, h: 450, color: '#d85c42', highlight: '#ff9670', roof: '#ffcc77', doorX: 3075, doorY: 700, collision: { x: 2750, y: 320, w: 560, h: 345 }, occlusion: { x: 2730, y: 275, w: 650, h: 555, frontY: 780 } },
+        { id: 'arcade', name: 'Monkey Arcade', icon: '🕹️', x: 4060, y: 680, w: 600, h: 500, color: '#2d5fc9', highlight: '#5aa7ff', roof: '#78e5ff', doorX: 4245, doorY: 1125, collision: { x: 4060, y: 680, w: 600, h: 350 }, occlusion: { x: 4040, y: 660, w: 620, h: 600, frontY: 1190 } },
+        { id: 'clan', name: 'Clan Hall', icon: '🛡️', x: 2860, y: 1510, w: 940, h: 640, color: '#237648', highlight: '#54bb68', roof: '#ffe06c', doorX: 3165, doorY: 1955, collisions: [{ x: 2905, y: 1505, w: 725, h: 390 }, { x: 3600, y: 1840, w: 155, h: 260 }], occlusion: { x: 2845, y: 1490, w: 980, h: 700, frontY: 2100 } }
     ];
     const MONKEY_WORLD_INTERIOR_STATIONS = Object.freeze({
         market:[{x:20,y:30,label:'Use Crate Counter',selector:'[data-world-shop="crates"]'},{x:50,y:20,label:'Use Boost Shelf',selector:'[data-world-shop="boosts"]'},{x:80,y:30,label:'Browse Cosmetics Wall',selector:'[data-world-shop="cosmetics"]'}],
@@ -1853,8 +1856,12 @@
             elements.mwGame.classList.remove('mp-hidden');
             const previewParams=new URLSearchParams(location.search),previewEventType=previewParams.get('event')||'',previewInterior=previewParams.get('interior')||'',previewSkin=/\.(?:png|gif|webp)$/i.test(previewParams.get('skin')||'')?previewParams.get('skin'):'Default Monkey.png',previewX=Math.max(140,Math.min(MONKEY_WORLD_WIDTH-140,Number(previewParams.get('x'))||1600)),previewY=Math.max(145,Math.min(MONKEY_WORLD_HEIGHT-145,Number(previewParams.get('y'))||1120));
             monkeyWorld.joined=true;monkeyWorld.x=previewX;monkeyWorld.y=previewY;
+            const previewBuilding = MONKEY_WORLD_BUILDINGS.find((building) => building.id === previewInterior);
+            elements.mwLocation.textContent = previewBuilding
+                ? `${previewBuilding.name} Interior`
+                : worldLocationName(previewX, previewY);
             const previewPirateSpawns=[[720,850],[1060,930],[1390,730],[1780,760],[2110,920],[2500,850],[2760,1120],[970,1510],[2260,1650]];
-            const previewEvent=previewEventType==='boss'?{id:'PREVIEW_BOSS',type:'boss_breaker',combat:true,boss:{id:'BOSS_BREAKER',x:1600,y:1740,hp:7450,maxHp:11100},entities:[{id:'HP',type:'health_potion',x:1380,y:1810},{id:'SHIELD',type:'shield_potion',x:1840,y:1810}]}:previewEventType==='pirates'?{id:'PREVIEW_PIRATES',type:'pirate_invasion',combat:true,wave:3,totalWaves:5,enemies:previewPirateSpawns.map(([x,y],index)=>({id:`P${index}`,name:`Pirate ${index+1}`,x,y,hp:90+index*3,maxHp:180}))}:previewEventType==='snow'?{id:'PREVIEW_SNOW',type:'snowstorm',entities:[{id:'ICE',type:'frozen_treasure',x:1830,y:1880}]}:previewEventType==='dance'?{id:'PREVIEW_DANCE',type:'dance_party',danceCenter:[1600,930]}:previewEventType==='fireworks'?{id:'PREVIEW_FIREWORKS',type:'firework_festival',launchers:[{id:'L1',x:1250,y:1050},{id:'L2',x:1950,y:1050}]}:previewEventType==='pvp'?{id:'PREVIEW_PVP',type:'monkey_pvp',combat:true,pvp:true,leaderboard:[{profileId:'PREVIEW_LOCAL',alive:true},{profileId:'PREVIEW_FRIEND',alive:true}]}:previewEventType==='bananas'?{id:'PREVIEW_BANANAS',type:'banana_rain',entities:Array.from({length:16},(_,index)=>({id:`B${index}`,type:'banana',x:950+(index%8)*180,y:650+Math.floor(index/8)*420}))}:null;
+            const previewEvent=previewEventType==='boss'?{id:'PREVIEW_BOSS',type:'boss_breaker',combat:true,boss:{id:'BOSS_BREAKER',x:1600,y:1740,hp:7450,maxHp:11100},entities:[{id:'HP',type:'health_potion',x:1380,y:1810},{id:'SHIELD',type:'shield_potion',x:1840,y:1810}]}:previewEventType==='pirates'?{id:'PREVIEW_PIRATES',type:'pirate_invasion',combat:true,wave:3,totalWaves:5,enemies:previewPirateSpawns.map(([x,y],index)=>({id:`P${index}`,name:`Pirate ${index+1}`,x,y,hp:90+index*3,maxHp:180}))}:previewEventType==='snow'?{id:'PREVIEW_SNOW',type:'snowstorm',entities:[{id:'ICE',type:'frozen_treasure',x:1830,y:1880}]}:previewEventType==='dance'?{id:'PREVIEW_DANCE',type:'dance_party',danceCenter:[1600,1350]}:previewEventType==='fireworks'?{id:'PREVIEW_FIREWORKS',type:'firework_festival',launchers:[{id:'L1',x:1250,y:1050},{id:'L2',x:1950,y:1050}]}:previewEventType==='pvp'?{id:'PREVIEW_PVP',type:'monkey_pvp',combat:true,pvp:true,leaderboard:[{profileId:'PREVIEW_LOCAL',alive:true},{profileId:'PREVIEW_FRIEND',alive:true}]}:previewEventType==='bananas'?{id:'PREVIEW_BANANAS',type:'banana_rain',entities:Array.from({length:16},(_,index)=>({id:`B${index}`,type:'banana',x:950+(index%8)*180,y:650+Math.floor(index/8)*420}))}:null;
             const previewPlayers = [
                 { profileId:'PREVIEW_LOCAL', username:'Banana Explorer', skin:previewSkin, aura:'golden-spark', banner:'banana-peel', equippedTitle:'Coast Pathfinder', level:18, x:previewX, y:previewY, direction:'down', moving:false },
                 { profileId:'PREVIEW_FRIEND', username:'Jungle Friend', skin:'Jungle Monkey.png', aura:'grove-orbit', banner:'skin-jungle-monkey', equippedTitle:'Tropical Legend', level:42, x:1740, y:1040, direction:'left', moving:true }
@@ -2139,7 +2146,19 @@
             // Clan Hall route: road -> right-side garden gate -> front steps
             // -> southern beach. The hall itself remains solid.
             { width: 260, points: [[3150,1080],[3060,1240],[2910,1370],[2760,1430],[2670,1520],[2470,1600],[2220,1600],[2050,1660]] },
-            { width: 235, points: [[2760,1430],[2870,1540],[3090,1630]] }
+            { width: 235, points: [[2760,1430],[2870,1540],[3090,1630]] },
+            // Expanded Banana Coast district loop. Keep these coordinates in
+            // sync with the authoritative server and the rendered paths.
+            { width: 350, points: [[3090,850],[3510,910],[3890,1030],[4245,1125],[4620,1270]] },
+            { width: 275, points: [[2570,825],[2670,575],[3075,700]] },
+            { width: 260, points: [[3075,700],[3350,610],[3650,470],[3900,720],[4245,1125]] },
+            { width: 270, points: [[3510,910],[3660,1190],[3710,1390],[3950,1540],[4520,1710]] },
+            { width: 270, points: [[4245,1125],[4480,1450],[4620,1740],[4580,2150],[4410,2540]] },
+            { width: 300, points: [[4410,2540],[4140,2790],[3790,2980],[3370,3070],[2860,3130],[2450,3120],[1920,2960],[1390,2900],[850,2670],[520,2390]] },
+            { width: 260, points: [[1590,1840],[1820,2170],[2140,2380]] },
+            { width: 250, points: [[2050,1700],[2110,1980],[2180,2260],[2140,2380]] },
+            { width: 270, points: [[3165,1955],[3400,2140],[3720,2320],[4140,2500]] },
+            { width: 245, points: [[1280,1580],[1030,1810],[810,2030],[620,2250],[520,2390]] }
         ];
         const pavedAreas = [
             { x: 1635, y: 960, rx: 650, ry: 485 },
@@ -2153,7 +2172,20 @@
             { x: 2050, y: 1660, rx: 300, ry: 205 },
             { x: 520, y: 1450, rx: 430, ry: 260 },
             { x: 1540, y: 1680, rx: 440, ry: 165 },
-            { x: 1600, y: 1870, rx: 1490, ry: 330 }
+            { x: 1600, y: 1870, rx: 1490, ry: 330 },
+            { x: 3710, y: 1390, rx: 330, ry: 250 },
+            { x: 4245, y: 1240, rx: 340, ry: 235 },
+            { x: 4520, y: 1710, rx: 320, ry: 270 },
+            { x: 4410, y: 2540, rx: 360, ry: 280 },
+            { x: 3790, y: 2980, rx: 340, ry: 255 },
+            { x: 2860, y: 3130, rx: 450, ry: 205 },
+            { x: 1640, y: 2940, rx: 430, ry: 260 },
+            { x: 850, y: 2670, rx: 350, ry: 270 },
+            { x: 2140, y: 2380, rx: 370, ry: 275 },
+            { x: 810, y: 2030, rx: 340, ry: 275 },
+            { x: 2380, y: 420, rx: 385, ry: 255 },
+            { x: 3650, y: 470, rx: 325, ry: 245 },
+            { x: 4770, y: 760, rx: 305, ry: 250 }
         ];
         if (pavedAreas.some((area) => ((x - area.x) / area.rx) ** 2 + ((y - area.y) / area.ry) ** 2 <= 1)) return true;
         return paths.some((path) => distanceToWorldPath(x, y, path.points) <= path.width / 2);
@@ -2177,6 +2209,24 @@
                     && y > box.y - footRadius && y < box.y + box.h + footRadius;
             });
         });
+    }
+
+    function collidesWorldLandmark(x, y) {
+        // Match the solid landmarks visible in the new coast.  The classic
+        // movement mask only described roads/buildings, so the WebGL fountain,
+        // benches, and lamp posts looked solid but could be walked through.
+        const circles = [
+            [1600,930,176],
+            [1110,680,20],[1190,1080,20],[2010,700,20],[2030,1080,20],
+            [970,850,20],[2230,875,20],[1480,520,20],[1710,520,20],
+            [1270,680,60],[1950,690,60],[1180,1120,60],[2050,1120,60],[620,1270,60]
+        ];
+        if (circles.some(([centerX,centerY,radius]) => Math.hypot(x-centerX,y-centerY) < radius)) return true;
+        // The WebGL coast owns additional visible props (notably its palms
+        // and perimeter trees). Query its physical map only while that map is
+        // active, so players cannot walk through rendered trunks and do not
+        // encounter invisible 3D-only blockers in the classic fallback.
+        return Boolean(monkeyWorld3D?.ready && monkeyWorld3D.collidesEnvironment?.(x, y, 10));
     }
 
     function isInteriorWalkable(x, y) {
@@ -2219,28 +2269,19 @@
                     : building.id === 'arcade'
                         ? [action('🎮','Online Cabinets','Browse every online game mode','data-world-online'), action('🏆','Profile Terminal','Open friends, profiles, messages, and achievements','data-world-social')]
                         : [action('🛡️','Clan Command Table','Open your Clan Headquarters','id="mwOpenClanHall"'), action('👥','Recruitment Board','Invite friends and manage your social list','data-world-social')];
-        elements.mwBuildingContent.innerHTML = `<div class="mw-building-menu mw-building-menu-${building.id}"><section class="mw-building-menu-hero"><span>${building.icon}</span><div><p class="mw-interior-kicker">WELCOME TO</p><h3>${escapeHtml(building.name)}</h3><strong>${roomIntro[0]}</strong><p>${roomIntro[1]}</p></div></section><section class="mw-building-services"><div class="mw-building-services-head"><div><small>BUILDING SERVICES</small><h4>What would you like to do?</h4></div><span>${actions.length} destinations</span></div><div class="mw-building-action-grid">${actions.join('')}</div></section><footer class="mw-building-menu-footer"><span>Walk to a glowing station and press E to use it.</span><button class="mp-danger" data-world-exit type="button">Exit to Banana Coast</button></footer></div>`;
-        if (!monkeyWorld3D?.ready) {
-            // The HTML services panel is the safe fallback when WebGL/Three.js
-            // is unavailable. Previously we switched to invisible interior
-            // coordinates while continuing to render the outdoor fallback,
-            // which made the monkey appear permanently frozen.
-            monkeyWorld.currentInterior = null;
-            monkeyWorld.nearbyInteriorStation = null;
-            monkeyWorld.pausedForMenu = true;
-            elements.mwBuildingModal.classList.add('open');
-            elements.mwBuildingModal.setAttribute('aria-hidden', 'false');
-            showToast(`Opened ${building.name}.`);
-            return;
-        }
-        monkeyWorld.currentInterior = building.id;
-        monkeyWorld.interiorX = 50;
-        monkeyWorld.interiorY = 82;
+        elements.mwBuildingContent.innerHTML = `<div class="mw-building-menu mw-building-menu-${building.id}"><section class="mw-building-menu-hero"><span>${building.icon}</span><div><p class="mw-interior-kicker">WELCOME TO</p><h3>${escapeHtml(building.name)}</h3><strong>${roomIntro[0]}</strong><p>${roomIntro[1]}</p></div></section><section class="mw-building-services"><div class="mw-building-services-head"><div><small>BUILDING SERVICES</small><h4>What would you like to do?</h4></div><span>${actions.length} destinations</span></div><div class="mw-building-action-grid">${actions.join('')}</div></section><footer class="mw-building-menu-footer"><span>Choose a destination below, or return to the plaza.</span><button class="mp-danger" data-world-exit type="button">Exit to Banana Coast</button></footer></div>`;
+        /* Preserve the original Monkey World building experience in both map
+           renderers. The experimental walkable WebGL rooms replaced working,
+           polished service menus with sparse geometry, mismatched collision,
+           and hidden interaction points. The 3D coast now opens the same rich,
+           functional building panel as the illustrated map. */
+        monkeyWorld.currentInterior = null;
         monkeyWorld.nearbyInteriorStation = null;
-        elements.mwBuildingModal.classList.remove('open');
-        elements.mwBuildingModal.setAttribute('aria-hidden', 'true');
-        monkeyWorld3D.enterInterior(building.id);
-        showToast(`Entered ${building.name}. Walk to a glowing station and press E.`);
+        monkeyWorld.pausedForMenu = true;
+        monkeyWorld3D?.exitInterior?.();
+        elements.mwBuildingModal.classList.add('open');
+        elements.mwBuildingModal.setAttribute('aria-hidden', 'false');
+        showToast(`Opened ${building.name}.`);
     }
 
     function closeWorldBuilding() {
@@ -2402,10 +2443,32 @@
     function worldLocationName(x, y) {
         const nearby = MONKEY_WORLD_BUILDINGS.find((building) => Math.hypot(x - building.doorX, y - building.doorY) < 330);
         if (nearby) return nearby.name;
-        if (y > 1450) return 'Sunset Beach';
-        if (x < 650) return 'Palm Cove';
-        if (x > 2550) return 'Arcade Point';
-        if (y < 430) return 'Coastal Gardens';
+        // Keep the location card in sync with the expanded 3D coast. Each
+        // destination uses an ellipse instead of a hard screen quadrant so
+        // walking between nearby attractions does not make the label flicker.
+        const districts = [
+            { name:'Moonstone Cave', x:810, y:2070, rx:500, ry:390 },
+            { name:'Palm Cove', x:850, y:2670, rx:520, ry:390 },
+            { name:'Tiki Beach', x:1640, y:2940, rx:620, ry:390 },
+            { name:'Sunset Boardwalk', x:2860, y:3090, rx:740, ry:280 },
+            { name:'Starwatch Hill', x:3790, y:2980, rx:530, ry:390 },
+            { name:'Crystal Cascades', x:4440, y:2540, rx:610, ry:470 },
+            { name:'Picnic Meadow', x:2140, y:2380, rx:570, ry:430 },
+            { name:'Lantern Grove', x:4520, y:1710, rx:560, ry:440 },
+            { name:'Banana Gardens', x:3710, y:1390, rx:540, ry:390 },
+            { name:'Arcade Terrace', x:4245, y:1240, rx:610, ry:430 },
+            { name:'Shipwreck Bay', x:4770, y:760, rx:520, ry:420 },
+            { name:'Cloudtop Shrine', x:3650, y:470, rx:560, ry:420 },
+            { name:'Banana Farm', x:2380, y:420, rx:650, ry:400 }
+        ];
+        let closest = null;
+        for (const district of districts) {
+            const normalizedDistance = Math.hypot((x - district.x) / district.rx, (y - district.y) / district.ry);
+            if (normalizedDistance <= 1 && (!closest || normalizedDistance < closest.distance)) {
+                closest = { name: district.name, distance: normalizedDistance };
+            }
+        }
+        if (closest) return closest.name;
         return 'Banana Coast Plaza';
     }
 
@@ -2887,8 +2950,8 @@
             } else {
                 const nextX = Math.max(120, Math.min(MONKEY_WORLD_WIDTH - 120, monkeyWorld.x + dx * 285 * delta));
                 const nextY = Math.max(135, Math.min(MONKEY_WORLD_HEIGHT - 145, monkeyWorld.y + dy * 285 * delta));
-                if (isWorldWalkable(nextX, monkeyWorld.y) && !collidesWorldBuilding(nextX, monkeyWorld.y)) monkeyWorld.x = nextX;
-                if (isWorldWalkable(monkeyWorld.x, nextY) && !collidesWorldBuilding(monkeyWorld.x, nextY)) monkeyWorld.y = nextY;
+                if (isWorldWalkable(nextX, monkeyWorld.y) && !collidesWorldBuilding(nextX, monkeyWorld.y) && !collidesWorldLandmark(nextX, monkeyWorld.y)) monkeyWorld.x = nextX;
+                if (isWorldWalkable(monkeyWorld.x, nextY) && !collidesWorldBuilding(monkeyWorld.x, nextY) && !collidesWorldLandmark(monkeyWorld.x, nextY)) monkeyWorld.y = nextY;
             }
         }
         if (!insideBuilding && !monkeyWorld3D?.ready) {

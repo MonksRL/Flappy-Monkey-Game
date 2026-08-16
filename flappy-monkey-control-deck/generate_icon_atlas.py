@@ -208,6 +208,11 @@ def main() -> None:
         x, y = (index % columns) * TILE, (index // columns) * TILE
         atlas.alpha_composite(tile, (x, y))
         mapping[f"{item.get('type', '')}:{item.get('itemId', '')}"] = [x, y, TILE, TILE]
+    if len(mapping) != len(items):
+        raise RuntimeError(
+            f"Catalog has {len(items)} rows but only {len(mapping)} unique icon keys; "
+            "duplicate type/item IDs must be fixed before packaging."
+        )
     OUTPUT.mkdir(parents=True, exist_ok=True)
     atlas.save(OUTPUT / "control-panel-icon-atlas.png", optimize=True)
     (OUTPUT / "control-panel-icon-atlas.json").write_text(json.dumps(mapping, separators=(",", ":")), encoding="utf-8")
