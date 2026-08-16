@@ -1,97 +1,128 @@
+#mwEventAtmosphere {
+    --mw-event-accent: #ffe36b;
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+}
+
+#mwEventAtmosphere::before {
+    position: absolute;
+    inset: 0;
+    content: "";
+    opacity: 0;
+    transition: opacity .45s ease;
+}
+
+.mw-event-active #mwEventAtmosphere::before { opacity: 1; }
+
+#mwGame[data-event-type="snowstorm"] #mwEventAtmosphere::before {
+    background:
+        radial-gradient(circle at 16% 18%, rgba(224, 250, 255, .18), transparent 24%),
+        radial-gradient(circle at 84% 42%, rgba(174, 222, 255, .16), transparent 28%),
+        linear-gradient(180deg, rgba(201, 237, 255, .13), rgba(21, 66, 91, .2));
+    box-shadow: inset 0 0 150px rgba(210, 245, 255, .22);
+}
+
+#mwGame[data-event-type="firework_festival"] #mwEventAtmosphere::before {
+    background:
+        radial-gradient(circle at 18% 16%, rgba(255, 88, 174, .2), transparent 22%),
+        radial-gradient(circle at 72% 13%, rgba(69, 224, 255, .2), transparent 24%),
+        radial-gradient(circle at 86% 54%, rgba(255, 215, 78, .13), transparent 24%),
+        linear-gradient(180deg, rgba(6, 4, 35, .28), rgba(24, 5, 48, .18));
+}
+
+#mwGame[data-event-type="dance_party"] #mwEventAtmosphere::before {
+    background:
+        conic-gradient(from 130deg at 50% 46%, transparent 0 10%, rgba(255, 68, 192, .1) 14%, transparent 22% 38%, rgba(61, 231, 255, .1) 44%, transparent 52% 70%, rgba(255, 226, 70, .08) 76%, transparent 84%),
+        radial-gradient(circle at 50% 48%, transparent 15%, rgba(4, 5, 25, .32) 82%);
+    animation: mw-event-party-atmosphere 9s linear infinite;
+}
+
+#mwGame[data-event-type="boss_breaker"] #mwEventAtmosphere::before,
+#mwGame[data-event-type="pirate_invasion"] #mwEventAtmosphere::before,
+#mwGame[data-event-type="monkey_pvp"] #mwEventAtmosphere::before,
+#mwGame[data-event-type="last_monkey_standing"] #mwEventAtmosphere::before {
+    background:
+        radial-gradient(circle at 50% 58%, transparent 24%, rgba(2, 12, 18, .2) 76%),
+        linear-gradient(180deg, rgba(255, 74, 49, .06), transparent 38%);
+    box-shadow: inset 0 0 140px rgba(2, 9, 15, .34);
+}
+
+@keyframes mw-event-party-atmosphere { to { filter: hue-rotate(360deg); transform: rotate(360deg) scale(1.18); } }
+
 #mwEventHud {
+    --mw-event-accent: #ffe36b;
+    --mw-event-accent-soft: rgba(255, 227, 107, .2);
     position: absolute;
     left: 50%;
-    top: 104px;
+    top: 106px;
     z-index: 18;
-    width: min(720px, calc(100% - 640px));
-    min-width: 420px;
-    padding: 12px 16px;
-    border: 1px solid rgba(255, 230, 119, .62);
-    border-radius: 16px;
+    width: min(720px, calc(100% - 680px));
+    min-width: 460px;
+    padding: 11px 14px;
+    border: 1px solid color-mix(in srgb, var(--mw-event-accent) 68%, transparent);
+    border-radius: 22px;
     color: #effff7;
-    background: linear-gradient(145deg, rgba(3, 29, 27, .98), rgba(16, 56, 45, .97));
-    box-shadow: 0 14px 34px rgba(0, 0, 0, .38), inset 0 1px rgba(255, 255, 255, .1);
+    background:
+        radial-gradient(circle at 12% -20%, var(--mw-event-accent-soft), transparent 48%),
+        linear-gradient(145deg, rgba(3, 27, 26, .96), rgba(5, 20, 28, .94));
+    box-shadow:
+        0 18px 44px rgba(0, 0, 0, .42),
+        0 0 24px color-mix(in srgb, var(--mw-event-accent) 14%, transparent),
+        inset 0 1px rgba(255, 255, 255, .13);
+    backdrop-filter: blur(18px) saturate(1.2);
     pointer-events: none;
     transform: translateX(-50%);
 }
 
+#mwEventHud[data-event-type="snowstorm"] { --mw-event-accent:#8de6ff; --mw-event-accent-soft:rgba(107,213,255,.24); }
+#mwEventHud[data-event-type="firework_festival"] { --mw-event-accent:#ff77d6; --mw-event-accent-soft:rgba(173,81,255,.24); }
+#mwEventHud[data-event-type="dance_party"] { --mw-event-accent:#74f4ff; --mw-event-accent-soft:rgba(255,71,204,.22); }
+#mwEventHud[data-event-type="boss_breaker"] { --mw-event-accent:#ff755c; --mw-event-accent-soft:rgba(255,72,45,.23); }
+#mwEventHud[data-event-type="pirate_invasion"] { --mw-event-accent:#ffc65c; --mw-event-accent-soft:rgba(255,152,54,.2); }
+#mwEventHud[data-event-type="monkey_pvp"] { --mw-event-accent:#ff667d; --mw-event-accent-soft:rgba(255,54,91,.2); }
+#mwEventHud[data-event-type="last_monkey_standing"] { --mw-event-accent:#ffd85a; --mw-event-accent-soft:rgba(255,211,70,.22); }
+
 #mwEventHud.mw-event-hidden,
 #mwEventLeaderboard.mw-event-hidden,
 #mwEventActions.mw-event-hidden,
-#mwEventRespawn.mw-event-hidden { display: none !important; }
+#mwEventRespawn.mw-event-hidden,
+#mwEventAtmosphere.mw-event-hidden { display: none !important; }
 
-.mw-event-hud-head { display: flex; align-items: center; gap: 10px; }
-.mw-event-hud-icon { font-size: 27px; filter: drop-shadow(0 3px 5px rgba(0,0,0,.4)); }
-.mw-event-hud-copy { min-width: 0; flex: 1; }
-.mw-event-hud-copy strong { display: block; color: #ffe77c; font-size: 16px; letter-spacing: .045em; }
-.mw-event-hud-copy span { display: block; overflow: hidden; color: #cde6dc; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.mw-event-timer { color: #fff5bf; font-size: 14px; font-weight: 1000; }
-.mw-event-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-.mw-event-bar { position: relative; height: 17px; overflow: hidden; border: 1px solid rgba(255,255,255,.17); border-radius: 999px; background: rgba(0,0,0,.42); }
-.mw-event-bar > i { display: block; height: 100%; border-radius: inherit; transition: width .22s ease; }
-.mw-event-bar > span { position: absolute; inset: 0; display: grid; place-items: center; color: white; font-size: 8px; font-style: normal; font-weight: 1000; text-shadow: 0 1px 3px black; }
-.mw-event-health i { background: linear-gradient(90deg,#e93b4e,#ff7885); }
-.mw-event-shield i { background: linear-gradient(90deg,#2788ff,#6de8ff); }
-.mw-event-boss { grid-column: 1 / -1; }
-.mw-event-boss i { background: linear-gradient(90deg,#ff392d,#ffb329); }
+.mw-event-hud-head { display: grid; grid-template-columns: 48px minmax(0,1fr) auto; align-items: center; gap: 11px; }
+.mw-event-hud-icon { display: grid; width: 46px; height: 46px; overflow: hidden; place-items: center; border: 1px solid color-mix(in srgb, var(--mw-event-accent) 58%, transparent); border-radius: 15px; background: rgba(3, 15, 20, .72); box-shadow: inset 0 1px rgba(255,255,255,.1), 0 6px 14px rgba(0,0,0,.26); font-size: 25px; }
+.mw-event-hud-icon img { width: 100%; height: 100%; object-fit: cover; }
+.mw-event-hud-copy { min-width: 0; }
+.mw-event-hud-kicker { display: block; margin-bottom: 1px; color: var(--mw-event-accent); font-size: 7px; font-weight: 1000; letter-spacing: .18em; text-transform: uppercase; }
+.mw-event-hud-copy strong { display: block; overflow: hidden; color: #fff4b0; font-size: 16px; letter-spacing: .035em; text-overflow: ellipsis; white-space: nowrap; }
+.mw-event-hud-copy > span:last-child { display: block; overflow: hidden; color: #c8dfd7; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.mw-event-timer { min-width: 62px; padding: 7px 9px; border: 1px solid color-mix(in srgb, var(--mw-event-accent) 38%, transparent); border-radius: 12px; color: #fff9d9; background: rgba(0,0,0,.28); font-size: 13px; font-weight: 1000; text-align: center; }
+.mw-event-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 9px; }
+.mw-event-bar { position: relative; height: 15px; overflow: hidden; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; background: rgba(0,0,0,.48); box-shadow: inset 0 2px 5px rgba(0,0,0,.35); }
+.mw-event-bar > i { display: block; height: 100%; border-radius: inherit; box-shadow: inset 0 1px rgba(255,255,255,.28); transition: width .24s ease; }
+.mw-event-bar > span { position: absolute; inset: 0; display: grid; place-items: center; color: white; font-size: 7px; font-style: normal; font-weight: 1000; letter-spacing: .04em; text-shadow: 0 1px 3px black; }
+.mw-event-health i { background: linear-gradient(90deg,#eb3349,#ff7786); }
+.mw-event-shield i { background: linear-gradient(90deg,#247fff,#70eaff); }
+.mw-event-boss { grid-column: 1 / -1; height: 17px; }
+.mw-event-boss i { background: linear-gradient(90deg,#f63329,#ffba2f); }
 
-#mwEventActions {
-    position: absolute;
-    left: 50%;
-    bottom: 82px;
-    z-index: 19;
-    display: flex;
-    gap: 8px;
-    transform: translateX(-50%);
-}
-
-#mwEventActions button {
-    min-width: 120px;
-    padding: 10px 14px;
-    border: 2px solid rgba(255,239,155,.72);
-    border-radius: 12px;
-    color: #231c02;
-    background: linear-gradient(145deg,#fff19a,#e1b73c);
-    box-shadow: 0 9px 22px rgba(0,0,0,.34);
-    font-size: 11px;
-    font-weight: 1000;
-    cursor: pointer;
-    transition: transform .16s ease, filter .16s ease, box-shadow .16s ease;
-}
-
+#mwEventActions { position: absolute; left: 50%; bottom: 86px; z-index: 19; display: flex; gap: 10px; transform: translateX(-50%); }
+#mwEventActions button { min-width: 150px; padding: 11px 15px; border: 1px solid rgba(155, 255, 210, .56); border-radius: 15px; color: #f4fff8; background: linear-gradient(145deg,rgba(31,111,73,.96),rgba(13,61,50,.96)); box-shadow: 0 10px 24px rgba(0,0,0,.35), inset 0 1px rgba(255,255,255,.14); font-size: 10px; font-weight: 1000; cursor: pointer; transition: transform .16s ease, filter .16s ease, box-shadow .16s ease, border-color .16s ease; }
 #mwEventActions button:hover,
-#mwEventActions button:focus-visible {
-    filter: brightness(1.08) saturate(1.08);
-    box-shadow: 0 12px 28px rgba(0,0,0,.4), 0 0 0 3px rgba(255,238,126,.2);
-    transform: translateY(-3px) scale(1.02);
-}
-
+#mwEventActions button:focus-visible { border-color: #dffff0; filter: brightness(1.15) saturate(1.12); box-shadow: 0 13px 30px rgba(0,0,0,.42), 0 0 0 3px rgba(94,241,173,.18), inset 0 1px rgba(255,255,255,.2); transform: translateY(-3px) scale(1.02); }
 #mwEventActions button:active { transform: translateY(0) scale(.98); }
+#mwEventActions button:disabled { border-color:rgba(151,180,167,.22); color:#93aaa0; background:linear-gradient(145deg,rgba(35,52,49,.9),rgba(18,31,31,.9)); box-shadow:inset 0 1px rgba(255,255,255,.06); cursor:not-allowed; filter:none; transform:none; }
 
-#mwEventLeaderboard {
-    position: absolute;
-    left: calc(50% + 372px);
-    right: auto;
-    top: 104px;
-    z-index: 18;
-    width: 250px;
-    max-height: min(62vh, 560px);
-    padding: 11px;
-    overflow-y: auto;
-    border: 1px solid rgba(112, 229, 184, .45);
-    border-radius: 15px;
-    color: #eafff4;
-    background: linear-gradient(150deg, rgba(3, 32, 28, .97), rgba(7, 23, 31, .96));
-    box-shadow: 0 16px 40px rgba(0,0,0,.42), inset 0 1px rgba(255,255,255,.08);
-    backdrop-filter: blur(12px);
-}
-
-#mwEventLeaderboard h3 { margin: 0 0 8px; color: #ffe57a; font-size: 13px; letter-spacing: .05em; text-align: center; }
-.mw-event-leader-row { display: grid; grid-template-columns: 25px 1fr auto; align-items: center; gap: 6px; padding: 7px 5px; border-top: 1px solid rgba(255,255,255,.08); }
-.mw-event-leader-row:first-of-type { border-top: 0; }
-.mw-event-place { color: #ffe36c; font-size: 11px; font-weight: 1000; }
-.mw-event-player-name { overflow: hidden; font-size: 10px; font-weight: 1000; text-overflow: ellipsis; white-space: nowrap; }
-.mw-event-player-title { display: block; overflow: hidden; margin-top: 2px; color: var(--event-title-color,#fff); font-size: 7px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 0 5px currentColor; }
+#mwEventLeaderboard { position: absolute; left: calc(50% + 372px); top: 106px; z-index: 18; width: 248px; max-height: min(56vh, 520px); padding: 10px; overflow-y: auto; border: 1px solid rgba(112, 229, 184, .46); border-radius: 20px; color: #eafff4; background: linear-gradient(150deg, rgba(3, 31, 27, .96), rgba(5, 18, 27, .95)); box-shadow: 0 18px 44px rgba(0,0,0,.42), inset 0 1px rgba(255,255,255,.1); backdrop-filter: blur(16px) saturate(1.18); }
+#mwEventLeaderboard h3 { margin: 0 0 7px; color: #ffe57a; font-size: 12px; letter-spacing: .055em; text-align: center; }
+.mw-event-leader-row { display: grid; grid-template-columns: 25px minmax(0,1fr) auto; align-items: center; gap: 6px; margin-top: 5px; padding: 7px 7px; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; background: rgba(255,255,255,.035); }
+.mw-event-leader-row:first-of-type { margin-top: 0; }
+.mw-event-place { color: #ffe36c; font-size: 10px; font-weight: 1000; }
+.mw-event-player-name { overflow: hidden; font-size: 9px; font-weight: 1000; text-overflow: ellipsis; white-space: nowrap; }
+.mw-event-player-title { display: block; overflow: hidden; margin-top: 1px; color: var(--event-title-color,#fff); font-size: 7px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 0 5px currentColor; }
 .mw-event-player-title.rgb { animation: mw-event-rgb var(--event-title-speed,3s) linear infinite; }
 .mw-event-player-title.gradient { color:transparent; -webkit-text-fill-color:transparent; background:linear-gradient(90deg,#ff5576,#ffd95a,#63f5aa,#62d9ff,#a881ff,#ff6cdc,#ff5576); background-size:260% 100%; -webkit-background-clip:text; background-clip:text; animation:mw-event-gradient var(--event-title-speed,3s) linear infinite; text-shadow:none; }
 .mw-event-player-title.glow:not(.gradient) { text-shadow:0 0 4px currentColor,0 0 9px currentColor; }
@@ -99,34 +130,19 @@
 .mw-event-player-title.glitch { text-shadow: -1px 0 #00efff, 1px 0 #ff43c8; }
 .mw-event-player-title.fire { color: #fff0a8; text-shadow: 0 0 7px #ff5b24; }
 .mw-event-player-title.sparkle { color: #fff8c9; text-shadow: 0 0 7px #fff284; }
-.mw-event-score { color: #9ff4c7; font-size: 11px; font-weight: 1000; }
+.mw-event-score { color: #9ff4c7; font-size: 10px; font-weight: 1000; }
 @keyframes mw-event-rgb { 0%{color:#ff6c8c} 33%{color:#62ecff} 66%{color:#8dff76} 100%{color:#ff6c8c} }
 @keyframes mw-event-gradient { to{background-position:260% 0} }
 
-#mwEventRespawn {
-    position: absolute;
-    inset: 0;
-    z-index: 22;
-    display: grid;
-    place-items: center;
-    color: #fff;
-    background: rgba(2,9,14,.5);
-    font: 1000 clamp(30px,7vw,76px) Arial;
-    text-align: center;
-    text-shadow: 0 8px 25px #000;
-    pointer-events: none;
-}
-#mwEventRespawn small { display:block; color:#add8c5; font-size:14px; letter-spacing:.08em; }
+#mwEventRespawn { position: absolute; inset: 0; z-index: 22; display: grid; place-items: center; padding: 24px; color: #fff; background: radial-gradient(circle at 50% 46%, rgba(22,54,58,.35), rgba(2,9,14,.76)); text-align: center; pointer-events: none; }
+#mwEventRespawn > div { position:relative; display:grid; width:min(590px,78vw); min-height:174px; padding:27px 34px 31px; place-content:center; overflow:hidden; border:1px solid rgba(255,230,120,.5); border-radius:30px; background:radial-gradient(circle at 50% -35%,rgba(255,218,92,.17),transparent 62%),linear-gradient(145deg,rgba(3,27,27,.91),rgba(3,14,24,.94)); box-shadow:0 26px 80px rgba(0,0,0,.54),0 0 34px rgba(111,235,210,.08),inset 0 1px rgba(255,255,255,.13); backdrop-filter:blur(18px) saturate(1.2); }
+.mw-respawn-kicker { margin-bottom:7px; color:#72efc2; font-size:9px; font-weight:1000; letter-spacing:.22em; text-transform:uppercase; text-shadow:none; }
+#mwEventRespawn strong { font:1000 clamp(34px,5vw,65px)/.98 Arial,sans-serif; letter-spacing:.015em; text-shadow:0 8px 25px #000; }
+#mwEventRespawn small { display:block; margin-top:11px; color:#c1e0d1; font-size:12px; font-weight:850; letter-spacing:.065em; text-shadow:none; }
+.mw-respawn-progress { position:absolute; right:0; bottom:0; left:0; height:5px; background:linear-gradient(90deg,#48efad,#ffe16b,#ff765d,#48efad); background-size:220% 100%; box-shadow:0 0 18px rgba(96,242,189,.7); animation:mw-respawn-progress 1s linear infinite; }
+@keyframes mw-respawn-progress { to { background-position:220% 0; } }
 
-#mwEventRewardModal {
-    position: fixed;
-    inset: 0;
-    z-index: 30000;
-    display: none;
-    place-items: center;
-    padding: 18px;
-    background: rgba(0,0,0,.76);
-}
+#mwEventRewardModal { position: fixed; inset: 0; z-index: 30000; display: none; place-items: center; padding: 18px; background: rgba(0,0,0,.76); }
 #mwEventRewardModal.open { display: grid; }
 .mw-event-reward-box { width: min(500px, 96vw); padding: 23px; border: 2px solid #ffe472; border-radius: 22px; color:#edfff5; background:radial-gradient(circle at 50% 0,rgba(255,221,85,.2),transparent 48%),#08251e; box-shadow:0 24px 80px rgba(0,0,0,.62); text-align:center; }
 .mw-event-reward-box h2 { margin:0 0 5px; color:#ffe77c; font-size:25px; }
@@ -135,18 +151,20 @@
 .mw-event-reward-item { width:130px; padding:10px; border:1px solid rgba(255,235,145,.34); border-radius:14px; background:rgba(255,255,255,.07); }
 .mw-event-reward-item img { width:76px; height:76px; object-fit:contain; filter:drop-shadow(0 6px 8px rgba(0,0,0,.38)); }
 .mw-event-reward-item strong { display:block; margin-top:6px; color:#fff5b7; font-size:10px; }
-.mw-event-reward-box button { margin-top:17px; padding:10px 28px; border:1px solid #fff0a2; border-radius:11px; color:#221b00; background:linear-gradient(145deg,#fff2a3,#dcb83f); font-weight:1000; cursor:pointer; }
+.mw-event-reward-box button { margin-top:17px; padding:10px 28px; border:1px solid #fff0a2; border-radius:12px; color:#221b00; background:linear-gradient(145deg,#fff2a3,#dcb83f); font-weight:1000; cursor:pointer; }
 
 @media (max-width: 760px) {
-    #mwEventHud { top: 94px; width: calc(100% - 16px); min-width: 0; }
-    #mwEventLeaderboard { left: auto; right: 6px; top: 188px; width: 180px; max-height: 42vh; }
-    #mwEventActions { bottom: 98px; }
-    #mwEventActions button { min-width: 92px; padding: 9px 8px; font-size: 9px; }
+    #mwEventHud { top:94px; width:calc(100% - 16px); min-width:0; padding:9px 10px; border-radius:16px; }
+    .mw-event-hud-head { grid-template-columns:38px minmax(0,1fr) auto; gap:8px; }
+    .mw-event-hud-icon { width:36px;height:36px;border-radius:11px;font-size:20px; }
+    #mwEventLeaderboard { left:auto; right:6px; top:186px; width:180px; max-height:38vh; }
+    #mwEventActions { bottom:98px; }
+    #mwEventActions button { min-width:102px; padding:9px 8px; font-size:8px; }
 }
 
 @media (min-width: 761px) and (max-width: 1180px) {
-    #mwEventHud { width: min(620px, calc(100% - 32px)); min-width: 0; }
-    #mwEventLeaderboard { left: auto; right: 18px; top: 205px; width: 220px; }
+    #mwEventHud { width:min(620px,calc(100% - 32px));min-width:0; }
+    #mwEventLeaderboard { left:auto;right:18px;top:194px;width:220px; }
 }
 
 /* Keep the emote control comfortably above the movement hint. */
