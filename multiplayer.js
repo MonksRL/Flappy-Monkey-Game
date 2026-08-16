@@ -1508,7 +1508,28 @@
         return [...receipts.values()];
     }
 
-    function receiptRewardLabel(reward) {
+    function controlPanelReceiptTitle(title) {
+        const raw = String(title || 'Control Panel Update').trim();
+        if (!/control panel/i.test(raw)) return raw;
+        return raw.replace(/\b(complete|collection|granted|removed|item|skins|titles|banners|themes|trails|auras|emotes|badges|currencies|by|control|panel)\b/gi, (word) => {
+            if (/^by$/i.test(word)) return 'by';
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        });
+    }
+
+    function receiptRewardLabel(reward, receipt) {
+        if (reward?.type === 'collection') {
+            if (/complete collection/i.test(String(receipt?.title || ''))) return 'Complete Collection';
+            const category = String(reward?.itemId || reward?.label || '').trim().toLowerCase();
+            const labels = {
+                '':'Complete Collection', all:'Complete Collection', skins:'Monkey Skins', titles:'Titles',
+                pipe_skins:'Pipe Skins', title_styles:'Title Styles', themes:'Menu Themes', trails:'Trails',
+                explosions:'Explosion VFX', auras:'Auras', banners:'Banners', emotes:'Monkey World Emotes',
+                message_emojis:'Message Emojis', badges:'Badges', duel_items:'Monkey Duel Items',
+                event_cosmetics:'Event Cosmetics', create_tickets:'Crate Tickets', currencies:'Currencies'
+            };
+            return labels[category] || category.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) || 'Collection';
+        }
         if (reward?.type === 'skin' && reward.itemId) return String(reward.itemId).replace(/\.[^.]+$/, '');
         const raw = String(reward?.label || reward?.itemId || 'Reward').trim();
         const catalogs = [
@@ -1618,9 +1639,9 @@
             ].sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
             elements.mpInboxList.innerHTML = announcements.length ? announcements.map((entry) => `
                 <article class="mp-inbox-entry">
-                    <div class="mp-gift-title">${entry.noticeType === 'receipt' ? `✅ ${escapeHtml(entry.title)}` : '📣 Global Announcement'}</div>
+                    <div class="mp-gift-title">${entry.noticeType === 'receipt' ? `✅ ${escapeHtml(controlPanelReceiptTitle(entry.title))}` : '📣 Global Announcement'}</div>
                     ${entry.noticeType === 'receipt'
-                        ? `<div class="mp-receipt-rewards">${(entry.rewards || []).map((reward) => `<span>${escapeHtml(receiptRewardLabel(reward))} ×${Math.max(1, Number(reward.amount) || 1).toLocaleString()}</span>`).join('')}</div>`
+                        ? `<div class="mp-receipt-rewards">${(entry.rewards || []).map((reward) => `<span>${escapeHtml(receiptRewardLabel(reward, entry))} ×${Math.max(1, Number(reward.amount) || 1).toLocaleString()}</span>`).join('')}</div>`
                         : `<p style="white-space:pre-wrap">${messageHtml(entry.text)}</p>`}
                     <div class="mp-message-time">${escapeHtml(new Date(entry.createdAt).toLocaleString())}</div>
                     ${entry.noticeType === 'announcement' && state.account?.isOwner ? `<button class="mp-danger mp-delete-announcement" type="button" data-delete-announcement="${escapeHtml(entry.id)}">Delete Announcement</button>` : ''}

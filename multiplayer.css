@@ -1088,7 +1088,8 @@
 .mw-controls { position:absolute; z-index:9; left:18px; bottom:18px; padding:10px 14px; border:1px solid rgba(255,255,255,.2); border-radius:13px; color:#dff7e8; text-align:center; font-size:10px; font-weight:900; background:rgba(2,31,31,.82); box-shadow:0 12px 28px rgba(0,0,0,.3); backdrop-filter:blur(11px); }
 .mw-controls b { color:#ffe56f; }
 .mw-controls span { padding:0 5px; opacity:.55; }
-#mwInteract { position:absolute!important; z-index:11; left:50%; bottom:22px; transform:translateX(-50%); min-width:220px; min-height:48px; box-shadow:0 0 0 5px rgba(255,223,76,.18),0 15px 34px rgba(0,0,0,.35); }
+#mwInteract { position:absolute!important; z-index:11; left:50%; bottom:22px; transform:translateX(-50%)!important; min-width:220px; min-height:48px; box-shadow:0 0 0 5px rgba(255,223,76,.18),0 15px 34px rgba(0,0,0,.35); }
+#mwInteract:hover,#mwInteract:focus-visible,#mwInteract:active { transform:translateX(-50%)!important; }
 .mw-game>.mp-error { position:absolute; z-index:14; left:50%; bottom:84px; width:min(680px,calc(100% - 40px)); margin:0; transform:translateX(-50%); }
 #mwBuildingModal { z-index:25; padding:8px; background:rgba(1,17,22,.82); backdrop-filter:blur(11px); }
 

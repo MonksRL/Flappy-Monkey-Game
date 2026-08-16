@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_VERSION = 'flappy-monkey-world-runtime-v15';
+const CACHE_VERSION = 'flappy-monkey-world-runtime-v16';
 const APP_SHELL = [
     './', './index.html', './manifest.json', './mobile.css', './multiplayer.css',
     './birthday-event.css', './game-dialog.css', './game-dialog.js', './birthday-event.js',
@@ -10,6 +10,9 @@ const APP_SHELL = [
     './cosmetic-favorites.css', './cosmetic-favorites.js',
     './banners-emotes.css', './banners-emotes.js',
     './monkey-world-events.css', './monkey-world-events.js', './monkey-world-voice.js',
+    './assets/event-vault/dance-party-stage-runtime.png',
+    './assets/event-vault/dance-party-disco-ball-runtime.png',
+    './assets/event-vault/firework-launcher-runtime.png',
     './monkey-duel.css', './monkey-duel.js', './settings-extras.js',
     './theme-coverage.css',
     './theme-completion-pass.css', './theme-last-mile.css', './theme-runtime-fixes.js',
