@@ -313,17 +313,15 @@
             bridge?.clearMovement?.();
             return { dx:0, dy:0 };
         }
-        if (event?.type !== 'snowstorm') { slipperyX = 0; slipperyY = 0; return { dx, dy }; }
-        // Keep a short, readable winter drift without taking steering away
-        // from the player or continuing to slide after input is released.
-        const smoothing = Math.min(1, Math.max(.18, delta * 13));
-        slipperyX += (dx - slipperyX) * smoothing;
-        slipperyY += (dy - slipperyY) * smoothing;
-        if (!dx) slipperyX *= .42;
-        if (!dy) slipperyY *= .42;
-        if (Math.abs(slipperyX) < .015) slipperyX = 0;
-        if (Math.abs(slipperyY) < .015) slipperyY = 0;
-        return { dx:slipperyX, dy:slipperyY };
+        // Snow is visual only. Forced drift made precise movement feel broken
+        // and could carry a player into a reward modal or building entrance.
+        slipperyX = 0; slipperyY = 0;
+        return { dx, dy };
+    }
+
+    function isMovementLocked() {
+        if (rewardModalOpen) return true;
+        return Boolean(event?.combat && localStats()?.alive === false);
     }
 
     function drawPickup(context, entity, now) {
@@ -554,5 +552,5 @@
         input.preventDefault();input.stopImmediatePropagation();perform('block');
     },true);
 
-    window.FlappyWorldEvents = Object.freeze({ attach, syncWorld, handleMessage, tick, drawWorld, modifyMovement, current:()=>event });
+    window.FlappyWorldEvents = Object.freeze({ attach, syncWorld, handleMessage, tick, drawWorld, modifyMovement, isMovementLocked, current:()=>event });
 })();

@@ -121,7 +121,7 @@
                 // Full-screen 1.6x rendering plus a 2048px live shadow map was
                 // enough to drop mid-range GPUs into single digits. Native 1x
                 // stays crisp at desktop resolution and leaves room for events.
-                this.pixelRatio = Math.min(memory <= 4 ? .85 : 1, Math.max(.75, Number(devicePixelRatio) || 1));
+                this.pixelRatio = Math.min(memory <= 4 ? .9 : 1, Math.max(.82, Number(devicePixelRatio) || 1));
                 this.renderer.setPixelRatio(this.pixelRatio);
             }
 
@@ -191,7 +191,16 @@
                 this.skyUniforms={uNight:{value:0},uSunset:{value:0}};
                 this.sky=new THREE.Mesh(new THREE.SphereGeometry(72,48,24),new THREE.ShaderMaterial({uniforms:this.skyUniforms,side:THREE.BackSide,depthWrite:false,vertexShader:'varying vec3 vWorld;void main(){vWorld=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',fragmentShader:'uniform float uNight;uniform float uSunset;varying vec3 vWorld;void main(){float h=clamp(normalize(vWorld).y*.5+.5,0.,1.);vec3 day=mix(vec3(.82,.96,1.),vec3(.11,.58,.88),smoothstep(.18,.9,h));vec3 dusk=mix(vec3(1.,.48,.28),vec3(.38,.12,.48),smoothstep(.1,1.,h));vec3 night=mix(vec3(.025,.045,.12),vec3(.01,.015,.06),h);gl_FragColor=vec4(mix(mix(day,dusk,uSunset),night,uNight),1.);}'}));this.sky.renderOrder=-100;this.scene.add(this.sky);
                 this.sunDisc=new THREE.Mesh(new THREE.SphereGeometry(.95,24,16),new THREE.MeshBasicMaterial({color:0xffef9d,transparent:true,opacity:.9}));this.sunDisc.position.set(-24,22,-34);this.scene.add(this.sunDisc);
-                const distant=this.material(0x668e69,{roughness:1});for(let index=0;index<15;index+=1){const angle=index/15*TAU,radius=24+seeded(index,811)*8,mound=new THREE.Mesh(new THREE.ConeGeometry(1.5+seeded(index,812)*2.8,1.2+seeded(index,813)*2.4,18),distant);mound.position.set(Math.cos(angle)*radius,-.2,Math.sin(angle)*radius*.72);mound.scale.z=.65;mound.rotation.y=seeded(index,814)*TAU;this.environment.add(mound);}
+                // Broad, partially submerged domes read as distant islands.
+                // The old cone primitives looked like spikes in the ocean.
+                const islandMaterials=[this.material(0x527c63,{roughness:1}),this.material(0x6c8d68,{roughness:1}),this.material(0x4e735b,{roughness:1})];
+                for(let index=0;index<9;index+=1){
+                    const angle=index/9*TAU+.18,radius=27+seeded(index,811)*7;
+                    const mound=new THREE.Mesh(new THREE.SphereGeometry(1,24,12),islandMaterials[index%islandMaterials.length]);
+                    mound.position.set(Math.cos(angle)*radius,-1.18,Math.sin(angle)*radius*.72);
+                    mound.scale.set(2.7+seeded(index,812)*2.4,.72+seeded(index,813)*.42,1.8+seeded(index,814)*1.8);
+                    mound.rotation.y=seeded(index,815)*TAU;this.environment.add(mound);
+                }
             }
             clearInterior(){while(this.interiorLayer?.children?.length)disposeObject(this.interiorLayer.children[0]);this.interiorPlayer=null;this.interiorId='';}
 
@@ -223,15 +232,15 @@
                 }else if(this.interiorId==='clan'){
                     const table=new THREE.Mesh(new THREE.CylinderGeometry(1.55,1.7,.3,8),this.material(0x6d472e,{map:this.surfaceTextures.wood,bumpMap:this.surfaceTextures.wood,bumpScale:.02,roughness:.76}));table.position.set(0,.58,.7);this.interiorLayer.add(table);const map=new THREE.Mesh(new THREE.PlaneGeometry(2.25,1.45),new THREE.MeshStandardMaterial({color:0xe7cf8b,map:this.surfaceTextures.paving,roughness:.82}));map.rotation.x=-Math.PI/2;map.position.set(0,.75,.7);this.interiorLayer.add(map);for(const x of [-3.7,3.7]){const banner=this.iconSprite('🛡️','#ffe17a');banner.scale.set(1.15,1.15,1);banner.position.set(x,1.55,-3.05);this.interiorLayer.add(banner);}
                 }
-                const playerSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:this.texture('Default Monkey.png'),transparent:true,alphaTest:.035,depthWrite:false}));playerSprite.center.set(.5,.08);playerSprite.scale.set(1.35,1.35,1);playerSprite.position.set(0,.25,2.1);playerSprite.renderOrder=20;this.interiorLayer.add(playerSprite);this.interiorPlayer=playerSprite;
+                const playerSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:this.texture('Default Monkey.png'),transparent:true,alphaTest:.035,depthWrite:false}));playerSprite.center.set(.5,.08);playerSprite.scale.set(1.35,1.35,1);playerSprite.position.set(0,.25,2.1);playerSprite.renderOrder=20;playerSprite.userData.facingScale=1;this.interiorLayer.add(playerSprite);this.interiorPlayer=playerSprite;
             }
 
             exitInterior(){if(!this.interiorId)return;this.interiorLayer.visible=false;this.environment.visible=true;this.dynamicEnvironment.visible=true;this.playerLayer.visible=true;this.eventLayer.visible=true;this.effectLayer.visible=true;this.renderer.shadowMap.enabled=!this.qualityReduced;this.sunLight.castShadow=!this.qualityReduced;}
 
             renderInterior(interior,now){
                 if(this.interiorId!==interior.id)this.enterInterior(interior.id);this.renderer.shadowMap.enabled=false;this.sunLight.castShadow=false;this.environment.visible=false;this.dynamicEnvironment.visible=false;this.playerLayer.visible=false;this.eventLayer.visible=false;this.effectLayer.visible=false;this.interiorLayer.visible=true;
-                const x=clamp((Number(interior.x)||50),5,95),y=clamp((Number(interior.y)||78),10,94),px=(x-50)*.1,pz=(y-52)*.072;if(this.interiorPlayer){if(this.interiorPlayer.userData.skin!==interior.skin){this.interiorPlayer.userData.skin=interior.skin;this.interiorPlayer.material.map=this.texture(interior.skin||'Default Monkey.png');this.interiorPlayer.material.needsUpdate=true;}this.interiorPlayer.position.set(px,.2+Math.abs(Math.sin(now*.012))*.05,pz);this.interiorPlayer.scale.x=(interior.direction==='left'?-1:1)*1.35;}
-                this.interiorLayer.children.forEach(object=>{if(object.userData.interiorMarker){object.material.opacity=.42+Math.sin(now*.004+object.userData.phase)*.24;object.rotation.z=now*.0007;}});const desired=new THREE.Vector3(px*.12,7.2,9.2);this.camera.position.lerp(desired,.1);this.cameraTarget.lerp(new THREE.Vector3(px*.08,.8,pz*.12-.6),.14);this.camera.lookAt(this.cameraTarget);this.renderer.render(this.scene,this.camera);
+                const x=clamp((Number(interior.x)||50),5,95),y=clamp((Number(interior.y)||78),10,94),px=(x-50)*.1,pz=(y-52)*.072;if(this.interiorPlayer){if(this.interiorPlayer.userData.skin!==interior.skin){this.interiorPlayer.userData.skin=interior.skin;this.interiorPlayer.material.map=this.texture(interior.skin||'Default Monkey.png');this.interiorPlayer.material.needsUpdate=true;}const currentFacing=this.interiorPlayer.userData.facingScale||1,targetFacing=interior.direction==='left'?-1:interior.direction==='right'?1:(currentFacing<0?-1:1);this.interiorPlayer.userData.facingScale=THREE.MathUtils.lerp(currentFacing,targetFacing,.22);this.interiorPlayer.position.set(px,.2+Math.abs(Math.sin(now*.012))*.05,pz);this.interiorPlayer.scale.x=this.interiorPlayer.userData.facingScale*1.35;}
+                this.interiorLayer.children.forEach(object=>{if(object.userData.interiorMarker){object.material.opacity=.42+Math.sin(now*.004+object.userData.phase)*.24;object.rotation.z=now*.0007;}});const desired=new THREE.Vector3(px*.1,7.85,8.45);this.camera.position.lerp(desired,.1);this.cameraTarget.lerp(new THREE.Vector3(px*.08,.72,pz*.1-.2),.14);this.camera.lookAt(this.cameraTarget);this.renderer.render(this.scene,this.camera);
             }
             createScene() {
                 this.scene = new THREE.Scene();
@@ -322,7 +331,7 @@
                 this.scene.updateMatrixWorld(true);
                 const excluded = new Set();
                 const excludeTree = (object) => object?.traverse?.((child) => excluded.add(child));
-                [this.boat, this.clouds, this.fountainWater, this.shoreFoam, this.fireflies, ...(this.fountainJets || [])].forEach(excludeTree);
+                [this.boat, this.clouds, this.fountainWater, this.shoreFoam, this.fireflies, ...(this.fountainJets || []), ...(this.fountainRipples || [])].forEach(excludeTree);
 
                 const groups = new Map();
                 let totalMeshes = 0;
@@ -571,6 +580,8 @@
                 basin.position.copy(this.worldPosition(1600,930,.48));basin.castShadow=true;basin.receiveShadow=true;this.environment.add(basin);
                 this.fountainWater = new THREE.Mesh(new THREE.CircleGeometry(1.65,64),new THREE.MeshPhysicalMaterial({color:0x4ae1ed,roughness:.14,metalness:.05,transparent:true,opacity:.82,transmission:.12}));
                 this.fountainWater.rotation.x=-Math.PI/2;this.fountainWater.position.copy(this.worldPosition(1600,930,.72));this.environment.add(this.fountainWater);
+                this.fountainRipples=[];
+                for(const [radius,phase] of [[.48,0],[.9,1.7],[1.34,3.4]]){const ripple=new THREE.Mesh(new THREE.TorusGeometry(radius,.018,6,64),new THREE.MeshBasicMaterial({color:0xd8ffff,transparent:true,opacity:.36,blending:THREE.AdditiveBlending,depthWrite:false}));ripple.rotation.x=Math.PI/2;ripple.position.copy(this.worldPosition(1600,930,.745));ripple.userData.phase=phase;this.environment.add(ripple);this.fountainRipples.push(ripple);}
                 const pillar = new THREE.Mesh(new THREE.CylinderGeometry(.25,.45,1.25,16),this.material(0xe1cda0,{roughness:.85}));
                 pillar.position.copy(this.worldPosition(1600,930,1.25));pillar.castShadow=true;this.environment.add(pillar);
                 const banana = new THREE.Mesh(new THREE.TorusGeometry(.42,.12,10,28,Math.PI*1.32),this.material(0xffd62f,{emissive:0x6d4300,emissiveIntensity:.16,roughness:.42}));
@@ -896,7 +907,7 @@
                 if(this.textureCache.has(source))return this.textureCache.get(source);
                 const animated=/\.gif(?:$|[?#])/i.test(source);
                 const texture=animated?this.animatedTexture(source):new THREE.TextureLoader().load(source);
-                texture.colorSpace=THREE.SRGBColorSpace;texture.magFilter=THREE.NearestFilter;texture.minFilter=animated?THREE.LinearFilter:THREE.LinearMipmapLinearFilter;texture.generateMipmaps=!animated;texture.anisotropy=Math.min(8,this.renderer.capabilities.getMaxAnisotropy());
+                texture.colorSpace=THREE.SRGBColorSpace;texture.magFilter=THREE.LinearFilter;texture.minFilter=animated?THREE.LinearFilter:THREE.LinearMipmapLinearFilter;texture.generateMipmaps=!animated;texture.anisotropy=Math.min(8,this.renderer.capabilities.getMaxAnisotropy());
                 // All local/interior and remote-player sprites share this one
                 // actively decoded image and receive its current frame at 20 FPS.
                 this.textureCache.set(source,texture);return texture;
@@ -918,7 +929,7 @@
                 const shadow=new THREE.Mesh(new THREE.CircleGeometry(.48,24),new THREE.MeshBasicMaterial({color:0x041a18,transparent:true,opacity:.32,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.position.y=.02;group.add(shadow);
                 const material=new THREE.SpriteMaterial({map:this.texture(player.skin),transparent:true,alphaTest:.05,depthWrite:true});
                 const sprite=new THREE.Sprite(material);sprite.center.set(.5,.08);sprite.position.y=.08;sprite.scale.set(1.28,1.28,1);sprite.castShadow=true;group.add(sprite);
-                const label=new THREE.Sprite(new THREE.SpriteMaterial({transparent:true,depthTest:false,depthWrite:false}));label.position.y=1.78;label.scale.set(2.65,.75,1);label.renderOrder=90;group.add(label);
+                const label=new THREE.Sprite(new THREE.SpriteMaterial({transparent:true,depthTest:false,depthWrite:false}));label.position.y=1.62;label.scale.set(2.38,.72,1);label.renderOrder=90;group.add(label);
                 const aura=new THREE.Mesh(new THREE.TorusGeometry(.68,.045,8,48),new THREE.MeshBasicMaterial({color:0xffdf59,transparent:true,opacity:.72,depthWrite:false,blending:THREE.AdditiveBlending}));aura.rotation.x=Math.PI/2;aura.position.y=.2;group.add(aura);
                 // Monkey World combat uses the recognizable Duel Wood Sword
                 // artwork instead of the old generic metal box geometry.
@@ -929,7 +940,7 @@
                 const guardArc=new THREE.Mesh(new THREE.TorusGeometry(.47,.065,10,48,Math.PI*1.32),new THREE.MeshBasicMaterial({color:0x6feaff,transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false}));guardArc.rotation.z=-2.34;guard.add(guardArc);
                 const guardGlow=new THREE.Mesh(new THREE.CircleGeometry(.42,32,Math.PI*.2,Math.PI*.62),new THREE.MeshBasicMaterial({color:0x55dfff,transparent:true,opacity:.16,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));guardGlow.rotation.z=-2.34;guard.add(guardGlow);
                 guard.position.set(.12,.78,.18);guard.visible=false;guard.renderOrder=22;group.add(guard);
-                group.userData={sprite,label,aura,sword,guard,guardArc,guardGlow,labelKey:'',skin:player.skin,baseScale:1.28,attackStartedAt:0,attackUntil:0};
+                group.userData={sprite,label,aura,sword,guard,guardArc,guardGlow,labelKey:'',skin:player.skin,baseScale:1.28,facingScale:player.direction==='left'?-1:1,attackStartedAt:0,attackUntil:0};
                 this.playerLayer.add(group);return group;
             }
 
@@ -942,10 +953,10 @@
                 node.userData.label.material.map?.dispose?.();
                 node.userData.label.material.map=this.canvasTexture(640,190,(context,width,height)=>{
                     context.clearRect(0,0,width,height);context.textAlign='center';context.textBaseline='middle';
-                    context.fillStyle='rgba(2,27,25,.92)';context.strokeStyle=local?'#ffe36b':'rgba(183,238,211,.92)';context.lineWidth=7;context.beginPath();context.roundRect(16,20,width-32,title?105:84,32);context.fill();context.stroke();
-                    context.fillStyle='#fffbe8';context.font='1000 42px Arial';context.fillText(`${clan}${player.username||'Monkey'}`.slice(0,32),width/2,title?61:62,width-70);
-                    if(title){context.fillStyle='rgba(3,47,39,.94)';context.strokeStyle='#d7ae4b';context.lineWidth=5;context.beginPath();context.roundRect(95,118,width-190,54,22);context.fill();context.stroke();context.fillStyle='#ffe988';context.font='900 27px Arial';context.fillText(title.slice(0,35),width/2,145,width-220);}
-                    context.fillStyle='#ffe66d';context.font='1000 22px Arial';context.fillText(`LV. ${Math.max(1,Number(player.level)||1)}`,width-68,35);
+                    context.fillStyle='rgba(2,27,25,.94)';context.strokeStyle=local?'#ffe36b':'rgba(183,238,211,.92)';context.lineWidth=7;context.beginPath();context.roundRect(18,18,width-36,78,30);context.fill();context.stroke();
+                    context.fillStyle='#fffbe8';context.font='1000 39px Arial';context.fillText(`${clan}${player.username||'Monkey'}`.slice(0,32),width/2,57,width-150);
+                    context.fillStyle='rgba(1,20,19,.96)';context.strokeStyle=local?'#ffe36b':'#83d8b3';context.lineWidth=4;context.beginPath();context.roundRect(width-113,29,78,48,21);context.fill();context.stroke();context.fillStyle='#ffe66d';context.font='1000 19px Arial';context.fillText(`LV ${Math.max(1,Number(player.level)||1)}`,width-74,54);
+                    if(title){context.fillStyle='rgba(3,47,39,.96)';context.strokeStyle='#d7ae4b';context.lineWidth=5;context.beginPath();context.roundRect(108,112,width-216,54,22);context.fill();context.stroke();context.fillStyle='#ffe988';context.font='900 26px Arial';context.fillText(title.slice(0,35),width/2,139,width-245);}
                 });
                 node.userData.label.material.needsUpdate=true;
             }
@@ -957,8 +968,13 @@
                     let node=this.playerNodes.get(id);if(!node){node=this.createPlayerNode(player);this.playerNodes.set(id,node);}
                     if(node.userData.skin!==player.skin){node.userData.skin=player.skin;node.userData.sprite.material.map=this.texture(player.skin);node.userData.sprite.material.needsUpdate=true;}
                     const local=id===localProfileId;const position=this.worldPosition(player.x,player.y,.3);node.position.lerp(position,local?1:.28);
-                    const moving=Boolean(player.moving);const step=moving?Math.sin(now*.012+Number(player.x)*.01):Math.sin(now*.0025+Number(player.y)*.01)*.18;node.userData.sprite.position.y=.08+Math.abs(step)*.08;node.userData.sprite.material.rotation=moving?step*.035:0;
-                    node.userData.sprite.scale.x=(player.direction==='left'?-1:1)*node.userData.baseScale*(1-Math.abs(step)*.025);node.userData.sprite.scale.y=node.userData.baseScale*(1+Math.abs(step)*.04);
+                    const moving=Boolean(player.moving),emoteActive=Boolean(player.emoteId&&Number(player.emoteUntil||0)>Date.now()),emoteTime=(Date.now()-Number(player.emoteStartedAt||Date.now()))/1000;
+                    const step=moving?Math.sin(now*.012+Number(player.x)*.01):Math.sin(now*.0025+Number(player.y)*.01)*.18;
+                    const currentFacing=node.userData.facingScale??1,targetFacing=player.direction==='left'?-1:player.direction==='right'?1:(currentFacing<0?-1:1);node.userData.facingScale=THREE.MathUtils.lerp(currentFacing,targetFacing,.2);
+                    let emoteLift=0,emoteLean=0,emoteShift=0,emoteScaleX=1,emoteScaleY=1;
+                    if(emoteActive){const id=String(player.emoteId);if(id==='snow-spin'){emoteLean=emoteTime*5;emoteLift=.12+Math.abs(Math.sin(emoteTime*3.4))*.08;}else if(id==='crown-bounce'||id==='galaxy-float'){emoteLift=.18+Math.abs(Math.sin(emoteTime*3))*.2;emoteLean=Math.sin(emoteTime*2)*.08;}else if(id==='robot-glitch'){const tick=Math.floor(emoteTime*12);emoteShift=((tick%5)-2)*.035;emoteLean=((tick%4)-1.5)*.07;}else{const beat=Math.sin(emoteTime*6);emoteLift=Math.abs(beat)*.12;emoteLean=beat*.13;emoteShift=beat*.09;emoteScaleX=1+Math.abs(beat)*.07;emoteScaleY=1-Math.abs(beat)*.045;}}
+                    node.userData.sprite.position.x=emoteShift;node.userData.sprite.position.y=.08+Math.abs(step)*.08+emoteLift;node.userData.sprite.material.rotation=emoteActive?emoteLean:(moving?step*.035:0);
+                    node.userData.sprite.scale.x=node.userData.facingScale*node.userData.baseScale*(1-Math.abs(step)*.025)*emoteScaleX;node.userData.sprite.scale.y=node.userData.baseScale*(1+Math.abs(step)*.04)*emoteScaleY;
                     this.updatePlayerLabel(node,player,local);
                     const auraAllowed=global.flappyVisualEffectsEnabled?.('aura')!==false;node.userData.aura.visible=auraAllowed&&Boolean(player.aura&&player.aura!=='none');
                     if(node.userData.aura.visible){const hue=Math.abs(String(player.aura).split('').reduce((sum,char)=>sum+char.charCodeAt(0),0)*31)%360;node.userData.aura.material.color.setHSL(hue/360,.92,.62);node.userData.aura.rotation.z=now*.0012;node.userData.aura.scale.setScalar(1+Math.sin(now*.004+Number(player.x))*.08);}
@@ -1018,22 +1034,20 @@
                         ball.position.set(0,3.74,.08);ball.scale.set(1.96,1.96,1);ball.renderOrder=8;group.add(ball);
                         const ring=new THREE.Mesh(new THREE.TorusGeometry(.9,.045,8,56),new THREE.MeshBasicMaterial({color:0x7cf7ff,transparent:true,opacity:.7,blending:THREE.AdditiveBlending,depthWrite:false}));ring.position.set(0,3.72,.04);ring.renderOrder=7;group.add(ring);
                         const lights=[0xff4f9a,0x56dfff,0xffde55,0x75ff9b].map((color,index)=>{const light=new THREE.PointLight(color,2.4,8);light.position.set(Math.cos(index*Math.PI/2)*2.5,3.1,Math.sin(index*Math.PI/2)*2.5);group.add(light);return light;});
-                        const speakerRings=[];
-                        for(const side of [-1,1])for(const speakerY of [2.4,3.14]){const speakerRing=new THREE.Mesh(new THREE.TorusGeometry(.31,.03,8,32),new THREE.MeshBasicMaterial({color:side<0?0x54e8ff:0xff57db,transparent:true,opacity:.72,blending:THREE.AdditiveBlending,depthWrite:false}));speakerRing.position.set(side*2.88,speakerY,.12);speakerRing.renderOrder=7;group.add(speakerRing);speakerRings.push(speakerRing);}
-                        group.userData={stage,ball,ring,lights,speakerRings};return group;
+                        group.userData={stage,ball,ring,lights};return group;
                     });
                     floor.position.copy(this.worldPosition(event.danceCenter[0],event.danceCenter[1],.34));
                     const beat=(Math.sin(now*.008)+1)/2;
                     floor.userData.stage.material.opacity=.9+beat*.1;floor.userData.stage.material.color.setHSL((now*.00005)%1,.12,1);
                     floor.userData.ball.material.rotation=Math.sin(now*.0015)*.08;floor.userData.ball.scale.setScalar(1.96*(1+beat*.055));floor.userData.ring.rotation.z=now*.0024;floor.userData.ring.scale.setScalar(.94+beat*.12);floor.userData.ring.material.opacity=.22+beat*.38;
-                    floor.userData.speakerRings.forEach((speakerRing,index)=>{const pulse=(Math.sin(now*.009+index*.42)+1)/2;speakerRing.scale.setScalar(.82+pulse*.38);speakerRing.material.opacity=.28+pulse*.62;});
                     floor.userData.lights.forEach((light,index)=>{light.intensity=1.7+Math.sin(now*.004+index*1.7)*.8;light.position.x=Math.cos(now*.0011+index*Math.PI/2)*2.8;light.position.z=Math.sin(now*.0011+index*Math.PI/2)*2.8;});
                 }
                 if(event.boss){
                     const key=`boss:${event.boss.id}`;activeKeys.add(key);
-                    const node=this.eventNodeFor(key,()=>{const group=new THREE.Group();const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:this.texture('bossbreakermonkey.png'),transparent:true,alphaTest:.04,depthWrite:false}));sprite.center.set(.5,.08);sprite.scale.set(2.6,2.6,1);sprite.renderOrder=22;group.add(sprite);const ring=new THREE.Mesh(new THREE.TorusGeometry(1.2,.08,10,56),new THREE.MeshBasicMaterial({color:0xff4a34,transparent:true,opacity:.75,blending:THREE.AdditiveBlending,depthWrite:false}));ring.rotation.x=Math.PI/2;ring.position.y=.1;group.add(ring);const label=new THREE.Sprite(new THREE.SpriteMaterial({transparent:true,depthTest:false,depthWrite:false}));label.position.y=2.9;label.scale.set(3.3,.75,1);label.renderOrder=90;group.add(label);group.userData={sprite,ring,label,hpKey:'',lastX:Number(event.boss.x),lastY:Number(event.boss.y),attackStartedAt:0,attackUntil:0};return group;});
-                    const bossTarget=this.worldPosition(event.boss.x,event.boss.y,.3),bossMoved=Math.hypot(Number(event.boss.x)-node.userData.lastX,Number(event.boss.y)-node.userData.lastY)>.5;
-                    node.position.lerp(bossTarget,.14);node.userData.lastX=Number(event.boss.x);node.userData.lastY=Number(event.boss.y);
+                    const node=this.eventNodeFor(key,()=>{const group=new THREE.Group();const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:this.texture('bossbreakermonkey.png'),transparent:true,alphaTest:.04,depthWrite:false}));sprite.center.set(.5,.08);sprite.scale.set(2.6,2.6,1);sprite.renderOrder=22;group.add(sprite);const ring=new THREE.Mesh(new THREE.TorusGeometry(1.2,.08,10,56),new THREE.MeshBasicMaterial({color:0xff4a34,transparent:true,opacity:.75,blending:THREE.AdditiveBlending,depthWrite:false}));ring.rotation.x=Math.PI/2;ring.position.y=.1;group.add(ring);const label=new THREE.Sprite(new THREE.SpriteMaterial({transparent:true,depthTest:false,depthWrite:false}));label.position.y=2.9;label.scale.set(3.3,.75,1);label.renderOrder=90;group.add(label);group.userData={sprite,ring,label,hpKey:'',lastX:Number(event.boss.x),lastY:Number(event.boss.y),movingUntil:0,attackStartedAt:0,attackUntil:0};return group;});
+                    const bossTarget=this.worldPosition(event.boss.x,event.boss.y,.3),bossTargetChanged=Math.hypot(Number(event.boss.x)-node.userData.lastX,Number(event.boss.y)-node.userData.lastY)>.5;
+                    if(bossTargetChanged)node.userData.movingUntil=now+380;const bossMoved=Boolean(event.boss.moving)||now<node.userData.movingUntil;
+                    node.position.lerp(bossTarget,.12);node.userData.lastX=Number(event.boss.x);node.userData.lastY=Number(event.boss.y);
                     const attackProgress=node.userData.attackUntil>now?Math.min(1,(now-node.userData.attackStartedAt)/900):0,windup=attackProgress>0&&attackProgress<.32?Math.sin(attackProgress/.32*Math.PI/2):0,strike=attackProgress>=.32&&attackProgress<.7?Math.sin((attackProgress-.32)/.38*Math.PI):0;
                     const bossStep=bossMoved?Math.sin(now*.012+Number(event.boss.x)*.01):Math.sin(now*.0025+Number(event.boss.y)*.01)*.18,bossFacing=event.boss.direction==='left'?-1:1;
                     node.userData.sprite.position.y=.06+Math.abs(bossStep)*(bossMoved?.17:.05);node.userData.sprite.position.x=strike*bossFacing*.42;node.userData.sprite.material.rotation=bossStep*.035+bossFacing*(-windup*.1+strike*.08);node.userData.sprite.scale.set(bossFacing*(2.6*(1-Math.abs(bossStep)*.025)+strike*.28),2.6*(1+Math.abs(bossStep)*.04)-windup*.2+strike*.25,1);node.userData.ring.rotation.z=now*.001;
@@ -1041,8 +1055,8 @@
                 }
                 for(const enemy of event.enemies||[]){
                     const key=`enemy:${enemy.id}`;activeKeys.add(key);
-                    const node=this.eventNodeFor(key,()=>{const group=new THREE.Group();const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:this.texture('Pirate Monkey.png'),transparent:true,alphaTest:.05,depthWrite:false}));sprite.center.set(.5,.08);sprite.scale.set(1.1,1.1,1);sprite.renderOrder=21;group.add(sprite);const label=new THREE.Sprite(new THREE.SpriteMaterial({transparent:true,depthTest:false,depthWrite:false}));label.position.y=1.36;label.scale.set(1.35,.34,1);label.renderOrder=90;group.add(label);group.userData={sprite,label,hpKey:'',lastX:Number(enemy.x),lastY:Number(enemy.y),attackStartedAt:0,attackUntil:0};return group;});
-                    const enemyTarget=this.worldPosition(enemy.x,enemy.y,.3),enemyMoved=Math.hypot(Number(enemy.x)-node.userData.lastX,Number(enemy.y)-node.userData.lastY)>.5;node.position.lerp(enemyTarget,.18);node.userData.lastX=Number(enemy.x);node.userData.lastY=Number(enemy.y);
+                    const node=this.eventNodeFor(key,()=>{const group=new THREE.Group();const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:this.texture('Pirate Monkey.png'),transparent:true,alphaTest:.05,depthWrite:false}));sprite.center.set(.5,.08);sprite.scale.set(1.1,1.1,1);sprite.renderOrder=21;group.add(sprite);const label=new THREE.Sprite(new THREE.SpriteMaterial({transparent:true,depthTest:false,depthWrite:false}));label.position.y=1.36;label.scale.set(1.35,.34,1);label.renderOrder=90;group.add(label);group.userData={sprite,label,hpKey:'',lastX:Number(enemy.x),lastY:Number(enemy.y),movingUntil:0,attackStartedAt:0,attackUntil:0};return group;});
+                    const enemyTarget=this.worldPosition(enemy.x,enemy.y,.3),enemyTargetChanged=Math.hypot(Number(enemy.x)-node.userData.lastX,Number(enemy.y)-node.userData.lastY)>.5;if(enemyTargetChanged)node.userData.movingUntil=now+340;const enemyMoved=Boolean(enemy.moving)||now<node.userData.movingUntil;node.position.lerp(enemyTarget,.14);node.userData.lastX=Number(enemy.x);node.userData.lastY=Number(enemy.y);
                     const attackProgress=node.userData.attackUntil>now?Math.min(1,(now-node.userData.attackStartedAt)/640):0,windup=attackProgress>0&&attackProgress<.34?Math.sin(attackProgress/.34*Math.PI/2):0,strike=attackProgress>=.34&&attackProgress<.72?Math.sin((attackProgress-.34)/.38*Math.PI):0,facing=enemy.direction==='left'?-1:1;
                     const enemyStep=enemyMoved?Math.sin(now*.012+Number(enemy.x)*.01):Math.sin(now*.0025+Number(enemy.y)*.01)*.18;
                     node.userData.sprite.position.y=Math.abs(enemyStep)*(enemyMoved?.11:.035);node.userData.sprite.position.x=strike*facing*.2;node.userData.sprite.material.rotation=enemyStep*.035+facing*(-windup*.14+strike*.12);node.userData.sprite.scale.set(facing*(1.1*(1-Math.abs(enemyStep)*.025)+strike*.08),1.1*(1+Math.abs(enemyStep)*.04)-windup*.07+strike*.08,1);
@@ -1143,7 +1157,7 @@
                 if(!this.qualityReduced&&average>17){
                     this.qualityReduced=true;
                     this.qualityStage=1;
-                    this.pixelRatio=Math.min(this.pixelRatio,.72);
+                    this.pixelRatio=Math.min(this.pixelRatio,.82);
                     this.renderer.setPixelRatio(this.pixelRatio);
                     this.renderer.shadowMap.enabled=false;
                     this.sunLight.castShadow=false;
@@ -1155,7 +1169,7 @@
                     // all buildings, foliage, water, effects and decorations,
                     // but lower only the internal WebGL resolution once more.
                     this.qualityStage=2;
-                    this.pixelRatio=Math.min(this.pixelRatio,.62);
+                    this.pixelRatio=Math.min(this.pixelRatio,.74);
                     this.renderer.setPixelRatio(this.pixelRatio);
                     this.lastWidth=0;this.lastHeight=0;
                     document.documentElement.dataset.monkeyWorldQuality='performance-2';
@@ -1165,7 +1179,7 @@
                     // objects, but give those devices one final resolution-only
                     // step instead of leaving the adaptive system half-finished.
                     this.qualityStage=3;
-                    this.pixelRatio=Math.min(this.pixelRatio,.52);
+                    this.pixelRatio=Math.min(this.pixelRatio,.68);
                     this.renderer.setPixelRatio(this.pixelRatio);
                     this.lastWidth=0;this.lastHeight=0;
                     document.documentElement.dataset.monkeyWorldQuality='performance-3';
@@ -1183,8 +1197,8 @@
                 this.skyUniforms.uNight.value+=(Number(night)-this.skyUniforms.uNight.value)*.035;
                 this.skyUniforms.uSunset.value+=(Number(sunset||dawn)-this.skyUniforms.uSunset.value)*.035;
                 this.sunDisc.visible=!night;this.sunDisc.material.opacity=THREE.MathUtils.lerp(this.sunDisc.material.opacity,sunset?.62:.92,.03);
-                this.backgroundTarget.setHex(night?0x071430:sunset?0xf08b78:dawn?0xf2bb8d:0x83d9ef);this.scene.background.lerp(this.backgroundTarget,.025);
-                this.fogTarget.setHex(night?0x0a1734:sunset?0xd58b76:0x8fd6de);this.scene.fog.color.lerp(this.fogTarget,.025);
+                this.backgroundTarget.setHex(night?0x071430:sunset?0x8c7398:dawn?0x9ec8dc:0x83d9ef);this.scene.background.lerp(this.backgroundTarget,.025);
+                this.fogTarget.setHex(night?0x0a1734:sunset?0x9b8196:dawn?0xa7c7d1:0x8fd6de);this.scene.fog.color.lerp(this.fogTarget,.025);
                 this.hemiLight.intensity=THREE.MathUtils.lerp(this.hemiLight.intensity,night ? .65 : 2.1,.025);
                 this.sunLight.intensity=THREE.MathUtils.lerp(this.sunLight.intensity,night ? .35 : sunset ? 2.1 : 3.4,.025);
                 this.sunColorTarget.setHex(night?0x7386c8:sunset?0xff916d:0xfff1bd);this.sunLight.color.lerp(this.sunColorTarget,.025);
@@ -1202,8 +1216,9 @@
                 // behind the walls.
                 if(data.interior){this.updateDayCycle(data.phase);this.renderInterior(data.interior,now);return true;}
                 this.waterUniforms.uTime.value=elapsed;
-                this.fountainWater.material.opacity=.78+Math.sin(elapsed*2.1)*.06;
-                this.fountainJets.forEach((jet,index)=>{jet.material.opacity=.62+Math.sin(elapsed*3+index)*.16;});
+                this.fountainWater.material.opacity=.78+Math.sin(elapsed*2.1)*.06;this.fountainWater.rotation.z=elapsed*.055;
+                this.fountainJets.forEach((jet,index)=>{jet.material.opacity=.62+Math.sin(elapsed*3+index)*.16;jet.scale.y=.96+Math.sin(elapsed*3.2+index*.7)*.045;});
+                this.fountainRipples?.forEach((ripple)=>{const pulse=(Math.sin(elapsed*1.9+ripple.userData.phase)+1)/2;ripple.scale.setScalar(.9+pulse*.16);ripple.material.opacity=.12+(1-pulse)*.34;ripple.rotation.z=elapsed*.08+ripple.userData.phase;});
                 this.dynamicEnvironment.children.forEach((object)=>{if(object.userData.doorGlow){object.material.opacity=.24+Math.sin(elapsed*2.6+object.userData.phase)*.14;object.scale.setScalar(1+Math.sin(elapsed*2.6+object.userData.phase)*.12);}});
                 this.fireflies.rotation.y=elapsed*.012;this.fireflies.material.opacity=.38+Math.sin(elapsed*.9)*.18;
                 this.clouds.children.forEach((cloud)=>{cloud.position.x+=cloud.userData.speed*.006;if(cloud.position.x>20)cloud.position.x=-20;});
@@ -1214,8 +1229,8 @@
                 this.updateEffects(now);
                 this.updateDayCycle(data.phase);
                 this.target.copy(this.worldPosition(data.localX||1600,data.localY||930,.45));
-                const cameraDistance=innerWidth<700?8.9:10.7;const cameraHeight=innerWidth<700?7.25:7.8;this.desiredCamera.set(this.target.x,this.target.y+cameraHeight,this.target.z+cameraDistance);
-                this.camera.position.lerp(this.desiredCamera,.085);this.cameraTarget.lerp(this.target,.12);this.camera.lookAt(this.cameraTarget.x,this.cameraTarget.y+.35,this.cameraTarget.z-1.3);
+                const cameraDistance=innerWidth<700?7.8:8.55;const cameraHeight=innerWidth<700?8.1:9.45;this.desiredCamera.set(this.target.x,this.target.y+cameraHeight,this.target.z+cameraDistance);
+                this.camera.position.lerp(this.desiredCamera,.085);this.cameraTarget.lerp(this.target,.12);this.camera.lookAt(this.cameraTarget.x,this.cameraTarget.y+.28,this.cameraTarget.z-.45);
                 this.sunLight.target.position.copy(this.target);this.sunLight.position.set(this.target.x-11,22,this.target.z+9);
                 this.renderer.render(this.scene,this.camera);
                 if(now-this.lastStatsAt>=1000){
