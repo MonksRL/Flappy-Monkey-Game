@@ -247,8 +247,13 @@
         const endVolume = Math.max(0, Math.min(1, Number(target) || 0));
         const startedAt = performance.now();
         const tick = (timestamp) => {
-            const progress = Math.min(1, (timestamp - startedAt) / Math.max(1, duration));
-            audio.volume = startVolume + (endVolume - startVolume) * (1 - Math.pow(1 - progress, 3));
+            // Chromium can deliver an RAF timestamp a fraction earlier than a
+            // performance.now() value captured immediately before it. Clamp
+            // both the progress and final value so HTMLMediaElement never
+            // receives a negative volume (which throws and stopped events).
+            const progress = Math.max(0, Math.min(1, (timestamp - startedAt) / Math.max(1, duration)));
+            const nextVolume = startVolume + (endVolume - startVolume) * (1 - Math.pow(1 - progress, 3));
+            audio.volume = Math.max(0, Math.min(1, nextVolume));
             if (progress < 1) audio.__flappyFadeFrame = requestAnimationFrame(tick);
             else {
                 audio.__flappyFadeFrame = 0;
@@ -1806,7 +1811,7 @@
         { id: 'market', name: 'Banana Market', icon: '🍌', x: 250, y: 270, w: 900, h: 560, color: '#df922c', highlight: '#ffca4d', roof: '#ffe367', doorX: 885, doorY: 742, collision: { x: 230, y: 205, w: 875, h: 445 }, occlusion: { x: 235, y: 260, w: 950, h: 620, frontY: 835 } },
         { id: 'wardrobe', name: 'Monkey Style', icon: '👕', x: 1290, y: 170, w: 620, h: 440, color: '#784ac3', highlight: '#bc78ed', roof: '#e2a6ff', doorX: 1635, doorY: 602, collision: { x: 1290, y: 165, w: 610, h: 385 }, occlusion: { x: 1270, y: 150, w: 670, h: 535, frontY: 630 } },
         { id: 'cafe', name: 'Banana Café', icon: '🥤', x: 2070, y: 240, w: 570, h: 450, color: '#d85c42', highlight: '#ff9670', roof: '#ffcc77', doorX: 2385, doorY: 640, collision: { x: 2060, y: 260, w: 560, h: 345 }, occlusion: { x: 2040, y: 215, w: 650, h: 555, frontY: 720 } },
-        { id: 'arcade', name: 'Monkey Arcade', icon: '🕹️', x: 2600, y: 600, w: 600, h: 500, color: '#2d5fc9', highlight: '#5aa7ff', roof: '#78e5ff', doorX: 2785, doorY: 1045, collision: { x: 2760, y: 610, w: 440, h: 260 }, occlusion: { x: 2580, y: 580, w: 620, h: 600, frontY: 1110 } },
+        { id: 'arcade', name: 'Monkey Arcade', icon: '🕹️', x: 2600, y: 600, w: 600, h: 500, color: '#2d5fc9', highlight: '#5aa7ff', roof: '#78e5ff', doorX: 2785, doorY: 1045, collision: { x: 2600, y: 600, w: 600, h: 350 }, occlusion: { x: 2580, y: 580, w: 620, h: 600, frontY: 1110 } },
         { id: 'clan', name: 'Clan Hall', icon: '🛡️', x: 1840, y: 970, w: 940, h: 640, color: '#237648', highlight: '#54bb68', roof: '#ffe06c', doorX: 2145, doorY: 1415, collisions: [{ x: 1885, y: 965, w: 725, h: 390 }, { x: 2580, y: 1300, w: 155, h: 260 }], occlusion: { x: 1825, y: 950, w: 980, h: 700, frontY: 1560 } }
     ];
     const MONKEY_WORLD_INTERIOR_STATIONS = Object.freeze({
@@ -2156,15 +2161,36 @@
 
     function collidesWorldBuilding(x, y) {
         return MONKEY_WORLD_BUILDINGS.some((building) => {
-            const doorwayThreshold = Math.abs(x - building.doorX) <= 62 && y >= building.doorY - 48;
-            if (doorwayThreshold) return false;
             // The monkey position represents its feet. A small foot radius is
             // enough; the previous 25px expansion blocked visible sidewalks.
             const footRadius = 12;
             const boxes = building.collisions || [building.collision || building];
-            return boxes.some((box) => x > box.x - footRadius && x < box.x + box.w + footRadius
-                && y > box.y - footRadius && y < box.y + box.h + footRadius);
+            return boxes.some((box) => {
+                // Only cut a short opening through the front wall. The old
+                // `y >= doorY` test made an infinite no-collision tunnel from
+                // every doorway to the bottom of the world.
+                const doorwayThreshold = Math.abs(x - building.doorX) <= 54
+                    && y >= box.y + box.h - 34
+                    && y <= building.doorY + 34;
+                if (doorwayThreshold) return false;
+                return x > box.x - footRadius && x < box.x + box.w + footRadius
+                    && y > box.y - footRadius && y < box.y + box.h + footRadius;
+            });
         });
+    }
+
+    function isInteriorWalkable(x, y) {
+        if (x < 8 || x > 92 || y < 18 || y > 92) return false;
+        const stationObstacles = (MONKEY_WORLD_INTERIOR_STATIONS[monkeyWorld.currentInterior] || [])
+            .map((station) => ({ x:station.x - 11, y:13, w:22, h:13 }));
+        const furniture = monkeyWorld.currentInterior === 'cafe'
+            ? [{ x:13,y:53,w:14,h:18 },{ x:43,y:53,w:14,h:18 },{ x:73,y:53,w:14,h:18 }]
+            : monkeyWorld.currentInterior === 'clan'
+                ? [{ x:34,y:51,w:32,h:25 }]
+                : monkeyWorld.currentInterior === 'wardrobe'
+                    ? [{ x:10,y:48,w:15,h:18 },{ x:43,y:48,w:14,h:18 },{ x:76,y:48,w:14,h:18 }]
+                    : [];
+        return ![...stationObstacles, ...furniture].some((box) => x > box.x && x < box.x + box.w && y > box.y && y < box.y + box.h);
     }
 
     function openWorldBuilding(building) {
@@ -2846,15 +2872,18 @@
         const emoteWheelOpen = Boolean(document.getElementById('mwEmoteWheel')?.classList.contains('open'));
         const blockingWorldMenu = externalWorldMenuOpen || worldBuildingMenuOpen || emoteWheelOpen;
         if(monkeyWorld.localEmote&&(Math.abs(dx)>.18||Math.abs(dy)>.18))cancelLocalWorldEmote(true);
-        const canWalk = !monkeyWorld.pausedForMenu && !blockingWorldMenu && !monkeyWorld.localEmote && !monkeyWorld.eventRewardOpen;
+        const eventMovementLocked = Boolean(window.FlappyWorldEvents?.isMovementLocked?.());
+        const canWalk = !monkeyWorld.pausedForMenu && !blockingWorldMenu && !monkeyWorld.localEmote && !monkeyWorld.eventRewardOpen && !eventMovementLocked;
         monkeyWorld.moving = Boolean((dx || dy) && canWalk);
         if (monkeyWorld.moving) {
             dx /= length; dy /= length;
             monkeyWorld.walkTime += delta;
             monkeyWorld.direction = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
             if (insideBuilding) {
-                monkeyWorld.interiorX = Math.max(8, Math.min(92, monkeyWorld.interiorX + dx * 42 * delta));
-                monkeyWorld.interiorY = Math.max(18, Math.min(92, monkeyWorld.interiorY + dy * 42 * delta));
+                const nextInteriorX = Math.max(8, Math.min(92, monkeyWorld.interiorX + dx * 42 * delta));
+                const nextInteriorY = Math.max(18, Math.min(92, monkeyWorld.interiorY + dy * 42 * delta));
+                if (isInteriorWalkable(nextInteriorX, monkeyWorld.interiorY)) monkeyWorld.interiorX = nextInteriorX;
+                if (isInteriorWalkable(monkeyWorld.interiorX, nextInteriorY)) monkeyWorld.interiorY = nextInteriorY;
             } else {
                 const nextX = Math.max(120, Math.min(MONKEY_WORLD_WIDTH - 120, monkeyWorld.x + dx * 285 * delta));
                 const nextY = Math.max(135, Math.min(MONKEY_WORLD_HEIGHT - 145, monkeyWorld.y + dy * 285 * delta));
@@ -2875,17 +2904,18 @@
         monkeyWorld.nearbyBuilding = building;
         const station = insideBuilding ? updateInteriorProximity() : null;
         const locked = Boolean(building && window.FlappyWorldEvents?.current?.());
+        const showWorldInteraction = Boolean(station || (building && !locked));
         const interactionLabel = station
             ? `E · ${station.label}`
-            : building
-                ? (locked ? '🔒 Buildings Locked During Event' : `E · Enter ${building.name}`)
+            : building && !locked
+                ? `E · Enter ${building.name}`
                 : '';
-        const interactionKey = `${station?.selector || ''}|${building?.id || ''}|${locked ? 1 : 0}|${interactionLabel}`;
+        const interactionKey = `${station?.selector || ''}|${building?.id || ''}|${showWorldInteraction ? 1 : 0}|${interactionLabel}`;
         if (monkeyWorld.interactionUiKey !== interactionKey) {
             monkeyWorld.interactionUiKey = interactionKey;
-            elements.mwInteract.classList.toggle('mp-hidden', !(building || station));
+            elements.mwInteract.classList.toggle('mp-hidden', !showWorldInteraction);
             if (interactionLabel && elements.mwInteract.textContent !== interactionLabel) elements.mwInteract.textContent = interactionLabel;
-            elements.mwInteract.disabled = Boolean(locked);
+            elements.mwInteract.disabled = false;
         }
         if (!insideBuilding) {
             if (now - monkeyWorld.lastSentAt > 100) { monkeyWorld.lastSentAt = now; send({ type: 'monkey_world_player_state', x: monkeyWorld.x, y: monkeyWorld.y, direction: monkeyWorld.direction, moving: monkeyWorld.moving }); }
